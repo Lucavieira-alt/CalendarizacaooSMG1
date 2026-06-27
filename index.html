@@ -1,0 +1,1047 @@
+<!doctype html>
+<html lang="pt-BR" class="bg-background">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Painel de Delivery Success — Last Mile</title>
+    <meta name="description" content="Painel de Delivery Success do Last Mile, vinculado em tempo real à planilha publicada no Google Sheets." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Geist", "ui-sans-serif", "system-ui", "sans-serif"],
+              mono: ["Geist Mono", "ui-monospace", "monospace"],
+            },
+            colors: {
+              background: "oklch(0.96 0.003 250 / <alpha-value>)",
+              foreground: "oklch(0.24 0.035 277 / <alpha-value>)",
+              card: "oklch(1 0 0 / <alpha-value>)",
+              "card-foreground": "oklch(0.24 0.035 277 / <alpha-value>)",
+              muted: "oklch(0.93 0.004 250 / <alpha-value>)",
+              "muted-foreground": "oklch(0.5 0.02 272 / <alpha-value>)",
+              border: "oklch(0.88 0.004 250 / <alpha-value>)",
+              input: "oklch(0.88 0.004 250 / <alpha-value>)",
+              primary: "oklch(0.34 0.095 279 / <alpha-value>)",
+              "primary-foreground": "oklch(0.99 0 0 / <alpha-value>)",
+              accent: "oklch(0.94 0.02 250 / <alpha-value>)",
+              "accent-foreground": "oklch(0.24 0.035 277 / <alpha-value>)",
+              destructive: "oklch(0.58 0.22 27 / <alpha-value>)",
+              success: "oklch(0.62 0.16 150 / <alpha-value>)",
+              "brand-yellow": "oklch(0.9 0.185 101 / <alpha-value>)",
+              "brand-navy": "oklch(0.34 0.095 279 / <alpha-value>)",
+              "brand-blue": "oklch(0.62 0.18 256 / <alpha-value>)",
+              "chart-success": "oklch(0.62 0.16 150 / <alpha-value>)",
+              "chart-warn": "oklch(0.8 0.16 86 / <alpha-value>)",
+              "chart-bad": "oklch(0.58 0.22 27 / <alpha-value>)",
+            },
+          },
+        },
+      };
+    </script>
+
+    <style>
+      :root {
+        color-scheme: light;
+        --brand-yellow: oklch(0.9 0.185 101);
+        --brand-navy: oklch(0.34 0.095 279);
+        --brand-blue: oklch(0.62 0.18 256);
+        --background: oklch(0.96 0.003 250);
+        --foreground: oklch(0.24 0.035 277);
+        --card: oklch(1 0 0);
+        --muted: oklch(0.93 0.004 250);
+        --muted-foreground: oklch(0.5 0.02 272);
+        --border: oklch(0.88 0.004 250);
+        --primary: oklch(0.34 0.095 279);
+        --chart-1: oklch(0.62 0.18 256);
+        --chart-2: oklch(0.34 0.095 279);
+        --chart-success: oklch(0.62 0.16 150);
+        --chart-warn: oklch(0.8 0.16 86);
+        --chart-bad: oklch(0.58 0.22 27);
+      }
+      body { font-family: "Geist", ui-sans-serif, system-ui, sans-serif; }
+      .tabular-nums { font-variant-numeric: tabular-nums; }
+      ::-webkit-scrollbar { height: 8px; width: 8px; }
+      ::-webkit-scrollbar-thumb { background: oklch(0.85 0.01 270); border-radius: 9999px; }
+    </style>
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script crossorigin src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script crossorigin src="https://unpkg.com/recharts@2.15.0/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body class="bg-background text-foreground font-sans">
+    <div id="root">
+      <div style="min-height:60vh;display:flex;align-items:center;justify-content:center;color:#666">
+        Carregando painel…
+      </div>
+    </div>
+
+    <script type="text/plain" id="app-source">
+      const { useState, useMemo, useEffect, useCallback } = React;
+      const {
+        ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis,
+        CartesianGrid, ReferenceLine, LabelList, Tooltip, Cell,
+      } = Recharts;
+
+      // ----------------------------------------------------------------------
+      // CONFIG — published Google Sheets CSV (gid 786411184)
+      // ----------------------------------------------------------------------
+      const SHEET_CSV_URL =
+        "https://docs.google.com/spreadsheets/d/e/2PACX-1vQpWd81REdtFrDgavtyCd8yATpFIyzAvGuXHLdEsYzMpDgPUMdSeMVLfVIHyzv8znxdpmUikFX9Wj7e/pub?gid=786411184&single=true&output=csv";
+      const DEFAULT_SVC = "SMG1";
+      const DS_META = 98.5;
+      const DS_META_WARN = DS_META - 3.5;
+
+      // ----------------------------------------------------------------------
+      // ENGINE (ported from lib/build-dashboard.ts + lib/data.ts)
+      // ----------------------------------------------------------------------
+      const COL = {
+        svc: 0, mlp: 1, modalAgg: 2, modalOrig: 3, cluster: 4, regiao: 5,
+        contrato: 6, faixa: 7, ciclo: 8, carrier: 9, date: 10,
+        desp: 11, entr: 12, ins: 13, onTime: 14, early: 15, delay: 16,
+        kmReal: 17, kmPlan: 18, orhReal: 19, orhPlan: 20, orhContrato: 21,
+      };
+      const DIM_COL = {
+        svc: 0, mlp: 1, modalAgg: 2, modalOrig: 3, cluster: 4, regiao: 5,
+        contrato: 6, faixa: 7, ciclo: 8, carrier: 9, date: 10,
+      };
+      const DIM_LABEL = {
+        svc: "SVC (estação)", mlp: "MLP", modalAgg: "Modal (agregado)",
+        modalOrig: "Modal (original)", cluster: "Cluster", regiao: "Região",
+        contrato: "Contrato", faixa: "Faixa de hora", ciclo: "Ciclo",
+        carrier: "Transportadora", date: "Data",
+      };
+      const DIM_ORDER = ["svc","mlp","modalAgg","modalOrig","cluster","regiao","contrato","faixa","ciclo","carrier","date"];
+
+      function num(v) {
+        if (v === undefined || v === null) return 0;
+        const s = String(v).trim();
+        if (s === "") return 0;
+        const normalized = s.includes(",") ? s.replace(/\./g, "").replace(",", ".") : s;
+        const n = Number.parseFloat(normalized);
+        return Number.isFinite(n) ? n : 0;
+      }
+      const round2 = (n) => Math.round(n * 100) / 100;
+      function isoDate(d) {
+        if (!d) return "";
+        const [dd, mm, yyyy] = String(d).split("/");
+        if (!yyyy) return "";
+        return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+      }
+      function modalAgg(nameRaw) {
+        const s = (nameRaw || "").toUpperCase();
+        if (s.includes("MOTO")) return "Moto";
+        if (s.includes("TRICICLO")) return "Moto";
+        if (s.includes("WALKER") || s.includes("A PÉ") || s.includes("PEDESTRE")) return "Walker";
+        if (s.includes("PASSEIO")) return "Passeio";
+        if (s.includes("VUC")) return "VUC";
+        if (s.includes("VAN")) return "Van";
+        if (s.includes("UTILIT") || s === "HR" || s.includes("RENTAL")) return "Utilitário";
+        return "Outros";
+      }
+
+      function buildDashboard(csvText) {
+        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const rows = parsed.data;
+        const dims = {};
+        const dimIndex = {};
+        for (const k of DIM_ORDER) { dims[k] = []; dimIndex[k] = new Map(); }
+        function intern(dimKey, value) {
+          const v = value === undefined || value === null || String(value).trim() === ""
+            ? "Não informado" : String(value).trim();
+          const idx = dimIndex[dimKey];
+          const existing = idx.get(v);
+          if (existing !== undefined) return existing;
+          const i = dims[dimKey].length;
+          dims[dimKey].push(v);
+          idx.set(v, i);
+          return i;
+        }
+        const out = [];
+        let totalRotas = 0;
+        for (const r of rows) {
+          const desp = num(r.CARREGADOS);
+          const entr = num(r.ENTREGUE);
+          const ins = num(r.INSUCESSOS);
+          if (desp === 0 && entr === 0) continue;
+          totalRotas += 1;
+          const modalRaw = (r.MODAL || "").trim();
+          const mlp = (r.MLP || "").trim();
+          out.push([
+            intern("svc", r.SVC),
+            intern("mlp", mlp),
+            intern("modalAgg", modalAgg(modalRaw)),
+            intern("modalOrig", modalRaw),
+            intern("cluster", r.CLUSTER),
+            intern("regiao", r.REGIAO),
+            intern("contrato", r.CONTRATO),
+            intern("faixa", r.ENTRE_HORAS),
+            intern("ciclo", r.CICLO),
+            intern("carrier", mlp),
+            intern("date", isoDate(r.DATA)),
+            desp, entr, ins, 0, 0, 0,
+            round2(num(r.KM)), 0, round2(num(r.ORH)), 0, 0,
+          ]);
+        }
+        // chronological faixa
+        const old = dims.faixa;
+        const hourOf = (s) => { const m = String(s).match(/(\d{1,2})H/); return m ? parseInt(m[1], 10) : 999; };
+        const order = old.map((_, i) => i).sort((a, b) => hourOf(old[a]) - hourOf(old[b]));
+        const oldToNew = new Array(old.length);
+        order.forEach((oldI, newI) => (oldToNew[oldI] = newI));
+        dims.faixa = order.map((i) => old[i]);
+        for (const row of out) row[COL.faixa] = oldToNew[row[COL.faixa]];
+
+        const dateList = [...dims.date].filter((d) => d && d !== "Não informado").sort();
+        const svcLabel = dims.svc.length === 1 ? dims.svc[0] : `${dims.svc.length} estações`;
+        return {
+          meta: {
+            estacao: svcLabel, site: "MLB", geradoEm: new Date().toISOString(),
+            periodoInicio: dateList[0] || "", periodoFim: dateList[dateList.length - 1] || "",
+            diasOperacao: dateList.length, totalRotas, totalMlp: dims.mlp.length,
+            totalRegioes: dims.regiao.length, totalClusters: dims.cluster.length,
+          },
+          dims, rows: out,
+        };
+      }
+
+      function availableDates(data) {
+        return [...data.dims.date].filter((d) => d && d !== "Não informado").sort();
+      }
+      function filterRows(data, filters, range) {
+        const active = [];
+        for (const key of Object.keys(filters)) {
+          const value = filters[key];
+          if (value == null || value === "") continue;
+          const col = DIM_COL[key];
+          const idx = data.dims[key].indexOf(value);
+          if (idx === -1) return [];
+          active.push([col, idx]);
+        }
+        let allowedDates = null;
+        if (range && (range.from || range.to)) {
+          allowedDates = new Set();
+          data.dims.date.forEach((iso, idx) => {
+            if (!iso || iso === "Não informado") return;
+            if (range.from && iso < range.from) return;
+            if (range.to && iso > range.to) return;
+            allowedDates.add(idx);
+          });
+        }
+        if (active.length === 0 && !allowedDates) return data.rows;
+        return data.rows.filter((r) => {
+          if (allowedDates && !allowedDates.has(r[COL.date])) return false;
+          for (const [col, idx] of active) if (r[col] !== idx) return false;
+          return true;
+        });
+      }
+      function blankAgg(nome) {
+        return { nome, desp: 0, entr: 0, ins: 0, rotas: 0, onTime: 0, early: 0, delay: 0,
+          kmReal: 0, kmPlan: 0, orhReal: 0, orhPlan: 0, orhContrato: 0,
+          ds: 0, onTimeRate: 0, kmAderencia: 0, orhAderencia: 0 };
+      }
+      function accumulate(a, r) {
+        a.desp += r[COL.desp]; a.entr += r[COL.entr]; a.ins += r[COL.ins]; a.rotas += 1;
+        a.kmReal += r[COL.kmReal]; a.orhReal += r[COL.orhReal];
+      }
+      function derive(a) { a.ds = a.desp > 0 ? (a.entr / a.desp) * 100 : 0; }
+      function aggregateBy(data, rows, dimKey, opts) {
+        opts = opts || {};
+        const col = DIM_COL[dimKey];
+        const labels = data.dims[dimKey];
+        const map = new Map();
+        const dimIdxOf = new Map();
+        for (const r of rows) {
+          const di = r[col];
+          let a = map.get(di);
+          if (!a) { a = blankAgg(labels[di] != null ? labels[di] : "—"); map.set(di, a); dimIdxOf.set(a, di); }
+          accumulate(a, r);
+        }
+        let result = [...map.values()];
+        for (const a of result) derive(a);
+        const sortBy = opts.sortBy || "desp";
+        const dir = opts.dir || "desc";
+        const minRotas = opts.minRotas || 0;
+        let filtered = minRotas > 0 ? result.filter((a) => a.rotas >= minRotas) : result;
+        filtered.sort((a, b) => {
+          if (sortBy === "dimOrder") return (dimIdxOf.get(a) || 0) - (dimIdxOf.get(b) || 0);
+          if (sortBy === "nome") return dir === "asc" ? a.nome.localeCompare(b.nome) : b.nome.localeCompare(a.nome);
+          const diff = a[sortBy] - b[sortBy];
+          return dir === "asc" ? diff : -diff;
+        });
+        if (opts.limit && filtered.length > opts.limit) filtered = filtered.slice(0, opts.limit);
+        return filtered;
+      }
+      function blankCell() { return { desp: 0, entr: 0, ins: 0, rotas: 0, ds: 0 }; }
+      function crossTab(data, rows, rowDim, colDim, opts) {
+        opts = opts || {};
+        const rc = DIM_COL[rowDim], cc = DIM_COL[colDim];
+        const rowLab = data.dims[rowDim], colLab = data.dims[colDim];
+        const matrix = new Map(), rowTotals = new Map(), colTotals = new Map();
+        const usedRows = new Set(), usedCols = new Set();
+        const accCell = (c, r) => { c.desp += r[COL.desp]; c.entr += r[COL.entr]; c.ins += r[COL.ins]; c.rotas += 1; };
+        for (const r of rows) {
+          const ri = r[rc], ci = r[cc];
+          usedRows.add(ri); usedCols.add(ci);
+          const key = ri + "|" + ci;
+          let m = matrix.get(key); if (!m) matrix.set(key, (m = blankCell())); accCell(m, r);
+          let rt = rowTotals.get(ri); if (!rt) rowTotals.set(ri, (rt = blankCell())); accCell(rt, r);
+          let ct = colTotals.get(ci); if (!ct) colTotals.set(ci, (ct = blankCell())); accCell(ct, r);
+        }
+        for (const m of matrix.values()) m.ds = m.desp > 0 ? (m.entr / m.desp) * 100 : 0;
+        for (const m of rowTotals.values()) m.ds = m.desp > 0 ? (m.entr / m.desp) * 100 : 0;
+        for (const m of colTotals.values()) m.ds = m.desp > 0 ? (m.entr / m.desp) * 100 : 0;
+        const minRotas = opts.minRotas || 0;
+        const rowIdx = [...usedRows].filter((i) => (rowTotals.get(i) ? rowTotals.get(i).rotas : 0) >= minRotas);
+        const colIdx = [...usedCols].filter((i) => (colTotals.get(i) ? colTotals.get(i).rotas : 0) >= minRotas);
+        rowIdx.sort((a, b) => (rowTotals.get(b).desp) - (rowTotals.get(a).desp));
+        colIdx.sort((a, b) => (colTotals.get(b).desp) - (colTotals.get(a).desp));
+        const rowLabels = rowIdx.map((i) => rowLab[i] != null ? rowLab[i] : "—");
+        const colLabels = colIdx.map((i) => colLab[i] != null ? colLab[i] : "—");
+        const rowLabelToIdx = new Map(rowIdx.map((i) => [rowLab[i] != null ? rowLab[i] : "—", i]));
+        const colLabelToIdx = new Map(colIdx.map((i) => [colLab[i] != null ? colLab[i] : "—", i]));
+        return {
+          rowLabels, colLabels,
+          cell: (row, col) => {
+            const ri = rowLabelToIdx.get(row), ci = colLabelToIdx.get(col);
+            if (ri == null || ci == null) return undefined;
+            return matrix.get(ri + "|" + ci);
+          },
+          rowTotal: (row) => rowTotals.get(rowLabelToIdx.has(row) ? rowLabelToIdx.get(row) : -1) || blankCell(),
+          colTotal: (col) => colTotals.get(colLabelToIdx.has(col) ? colLabelToIdx.get(col) : -1) || blankCell(),
+        };
+      }
+      function totals(rows) {
+        const a = blankAgg("total");
+        for (const r of rows) accumulate(a, r);
+        derive(a);
+        return a;
+      }
+      function trendByDate(data, rows) {
+        return aggregateBy(data, rows, "date", { sortBy: "nome", dir: "asc" })
+          .filter((a) => a.nome && a.nome !== "Não informado")
+          .map((a) => ({ date: a.nome, desp: a.desp, entr: a.entr, ins: a.ins, ds: a.ds }));
+      }
+      function dsTone(ds) { if (ds >= DS_META) return "good"; if (ds >= DS_META_WARN) return "warn"; return "bad"; }
+      function dsColorVar(ds) {
+        const t = dsTone(ds);
+        return t === "good" ? "var(--chart-success)" : t === "warn" ? "var(--chart-warn)" : "var(--chart-bad)";
+      }
+      function vsMeta(ds) { return ds - DS_META; }
+
+      // formatters
+      const nf = new Intl.NumberFormat("pt-BR");
+      const cf = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
+      const fmtInt = (n) => nf.format(Math.round(n));
+      const fmtCompact = (n) => cf.format(n);
+      const fmtPct = (n, d = 1) => `${n.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d })}%`;
+      const fmtDec = (n, d = 1) => n.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+      const fmtDateShort = (iso) => { const [, m, d] = iso.split("-"); return d ? `${d}/${m}` : iso; };
+      const fmtDateFull = (iso) => { const [y, m, d] = iso.split("-"); return d ? `${d}/${m}/${y}` : iso; };
+      function fmtUpdatedAt(iso) {
+        if (!iso) return "—";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "—";
+        return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+      }
+
+      const cx = (...a) => a.filter(Boolean).join(" ");
+      const toneColor = (tone) =>
+        tone === "good" ? "var(--chart-success)" : tone === "warn" ? "var(--chart-warn)"
+        : tone === "bad" ? "var(--chart-bad)" : tone === "brand" ? "var(--brand-blue)" : "var(--foreground)";
+
+      // ----------------------------------------------------------------------
+      // ICONS (inline lucide paths)
+      // ----------------------------------------------------------------------
+      function Icon({ name, className }) {
+        const p = { className: className || "size-4", viewBox: "0 0 24 24", fill: "none",
+          stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" };
+        switch (name) {
+          case "resumo": return <svg {...p}><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>;
+          case "mlp": return <svg {...p}><path d="M22 8.35V20a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8.35a2 2 0 0 1 1.26-1.85l8-3.2a2 2 0 0 1 1.48 0l8 3.2A2 2 0 0 1 22 8.35Z"/><path d="M6 18h12M6 14h12M6 10h12"/></svg>;
+          case "regiao": return <svg {...p}><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>;
+          case "map": return <svg {...p}><path d="M14.106 5.553a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619v12.764a1 1 0 0 1-.553.894l-4.553 2.277a2 2 0 0 1-1.788 0l-4.212-2.106a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0Z"/><path d="M15 5.764v15M9 3.236v15"/></svg>;
+          case "grid": return <svg {...p}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>;
+          case "layers": return <svg {...p}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>;
+          case "truck": return <svg {...p}><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 18.52 8H14"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>;
+          case "contrato": return <svg {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8M16 17H8M10 9H8"/></svg>;
+          case "clock": return <svg {...p}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>;
+          case "refresh": return <svg {...p}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>;
+          case "up": return <svg {...p}><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>;
+          case "down": return <svg {...p}><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg>;
+          case "sort": return <svg {...p}><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>;
+          case "trendUp": return <svg {...p}><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>;
+          case "trendDown": return <svg {...p}><path d="M16 17h6v-6"/><path d="m22 17-8.5-8.5-5 5L2 7"/></svg>;
+          case "calendar": return <svg {...p}><path d="M8 2v4M16 2v4"/><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18"/></svg>;
+          case "x": return <svg {...p}><path d="M18 6 6 18M6 6l12 12"/></svg>;
+          default: return null;
+        }
+      }
+
+      // ----------------------------------------------------------------------
+      // UI PRIMITIVES
+      // ----------------------------------------------------------------------
+      const Card = ({ className, children }) => <div className={cx("flex flex-col gap-4 rounded-xl border border-border bg-card py-4 text-card-foreground shadow-sm", className)}>{children}</div>;
+      const CardHeader = ({ className, children }) => <div className={cx("flex flex-col gap-1 px-4", className)}>{children}</div>;
+      const CardTitle = ({ className, children }) => <h3 className={cx("font-semibold leading-tight text-foreground", className)}>{children}</h3>;
+      const CardDescription = ({ children }) => <p className="text-sm text-muted-foreground">{children}</p>;
+      const CardContent = ({ className, children }) => <div className={cx("px-4", className)}>{children}</div>;
+
+      function Chart({ height, children }) {
+        return <div style={{ width: "100%", height }}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div>;
+      }
+      function TooltipContent({ active, payload, label, format }) {
+        if (!active || !payload || !payload.length) return null;
+        return (
+          <div className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs shadow-md">
+            {label != null && <div className="mb-1 font-medium text-foreground">{label}</div>}
+            {payload.map((p, i) => {
+              const f = format ? format(p.value, p.dataKey, p) : [String(p.value), " " + (p.name || p.dataKey)];
+              return (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="size-2 rounded-sm" style={{ background: p.color || p.fill }} />
+                  <span className="font-mono text-foreground">{f[0]}</span>
+                  <span className="text-muted-foreground">{f[1]}</span>
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // CHARTS
+      // ----------------------------------------------------------------------
+      function DsTrendChart({ points }) {
+        const chartData = points.map((p) => ({ dia: fmtDateShort(p.date), entregue: p.entr, ds: Number(p.ds.toFixed(2)) }));
+        const fmt = (v, k) => k === "ds" ? [fmtPct(Number(v), 2), " Delivery Success"] : [fmtInt(Number(v)), " Entregues"];
+        return (
+          <Card>
+            <CardHeader><CardTitle>Evolução diária do Delivery Success</CardTitle><CardDescription>Volume entregue (barras) versus taxa de sucesso (linha) por dia</CardDescription></CardHeader>
+            <CardContent>
+              <Chart height={300}>
+                <ComposedChart data={chartData} margin={{ left: 4, right: 4, top: 8 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="dia" tickLine={false} axisLine={false} tickMargin={8} minTickGap={16} fontSize={11} />
+                  <YAxis yAxisId="left" tickLine={false} axisLine={false} width={44} fontSize={11} tickFormatter={(v) => fmtInt(v)} />
+                  <YAxis yAxisId="right" orientation="right" domain={[80, 100]} tickLine={false} axisLine={false} width={40} fontSize={11} tickFormatter={(v) => v + "%"} />
+                  <ReferenceLine yAxisId="right" y={DS_META} stroke="var(--brand-navy)" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: `Meta ${DS_META}%`, position: "insideTopRight", fill: "var(--brand-navy)", fontSize: 10 }} />
+                  <Tooltip content={(p) => <TooltipContent {...p} format={fmt} />} />
+                  <Bar yAxisId="left" dataKey="entregue" name="Entregues" fill="var(--chart-1)" radius={[3, 3, 0, 0]} opacity={0.5} isAnimationActive={false} />
+                  <Line yAxisId="right" dataKey="ds" name="DS" stroke="var(--chart-2)" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 4 }} isAnimationActive={false}>
+                    <LabelList dataKey="ds" position="top" offset={8} fill="var(--foreground)" fontSize={10} formatter={(v) => fmtPct(v, 1)} />
+                  </Line>
+                </ComposedChart>
+              </Chart>
+            </CardContent>
+          </Card>
+        );
+      }
+      function MlpSummaryChart({ data }) {
+        const chartData = data.map((a) => ({ mlp: a.nome, entregue: a.entr, ds: Number(a.ds.toFixed(2)) }));
+        const fmt = (v, k) => k === "ds" ? [fmtPct(Number(v), 2), " Delivery Success"] : [fmtInt(Number(v)), " Entregues"];
+        return (
+          <Card>
+            <CardHeader><CardTitle>Resumo por MLP</CardTitle><CardDescription>Volume entregue (barras) versus taxa de sucesso (linha) por MLP</CardDescription></CardHeader>
+            <CardContent>
+              <Chart height={340}>
+                <ComposedChart data={chartData} margin={{ left: 4, right: 4, top: 8, bottom: 40 }}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="mlp" tickLine={false} axisLine={false} tickMargin={8} interval={0} angle={-40} textAnchor="end" height={70} fontSize={10} />
+                  <YAxis yAxisId="left" tickLine={false} axisLine={false} width={44} fontSize={11} tickFormatter={(v) => fmtInt(v)} />
+                  <YAxis yAxisId="right" orientation="right" domain={[80, 100]} tickLine={false} axisLine={false} width={40} fontSize={11} tickFormatter={(v) => v + "%"} />
+                  <ReferenceLine yAxisId="right" y={DS_META} stroke="var(--brand-navy)" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: `Meta ${DS_META}%`, position: "insideTopRight", fill: "var(--brand-navy)", fontSize: 10 }} />
+                  <Tooltip content={(p) => <TooltipContent {...p} format={fmt} />} />
+                  <Bar yAxisId="left" dataKey="entregue" name="Entregues" fill="var(--chart-1)" radius={[3, 3, 0, 0]} opacity={0.5} isAnimationActive={false} />
+                  <Line yAxisId="right" dataKey="ds" name="DS" stroke="var(--chart-2)" strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 4 }} isAnimationActive={false}>
+                    <LabelList dataKey="ds" position="top" offset={8} fill="var(--foreground)" fontSize={10} formatter={(v) => fmtPct(v, 1)} />
+                  </Line>
+                </ComposedChart>
+              </Chart>
+            </CardContent>
+          </Card>
+        );
+      }
+      function HourChart({ data }) {
+        const chartData = data.filter((a) => a.nome && a.nome !== "Não informado").map((a) => ({ faixa: a.nome, desp: a.desp, ds: Number(a.ds.toFixed(1)) }));
+        const fmt = (v, k) => k === "ds" ? [fmtPct(Number(v), 1), " DS"] : [fmtInt(Number(v)), " Despachado"];
+        return (
+          <Card>
+            <CardHeader><CardTitle>Saídas por faixa de hora</CardTitle><CardDescription>Volume despachado (barras) e taxa de DS (linha) por janela de saída da rota</CardDescription></CardHeader>
+            <CardContent>
+              {chartData.length === 0 ? <p className="py-12 text-center text-sm text-muted-foreground">Sem dados para a seleção atual.</p> : (
+                <Chart height={340}>
+                  <ComposedChart data={chartData} margin={{ left: 4, right: 8, top: 20, bottom: 4 }}>
+                    <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="faixa" tickLine={false} axisLine={false} tick={{ fontSize: 11 }} interval={0} angle={-40} textAnchor="end" height={56} />
+                    <YAxis yAxisId="left" tickLine={false} axisLine={false} tickFormatter={(v) => fmtCompact(Number(v))} width={44} tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[80, 100]} tickFormatter={(v) => v + "%"} tickLine={false} axisLine={false} width={40} tick={{ fontSize: 11 }} />
+                    <Tooltip content={(p) => <TooltipContent {...p} format={fmt} />} />
+                    <ReferenceLine yAxisId="right" y={DS_META} stroke="var(--brand-navy)" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: `Meta ${DS_META}%`, position: "insideTopRight", fill: "var(--brand-navy)", fontSize: 10 }} />
+                    <Bar yAxisId="left" dataKey="desp" name="Despachado" fill="var(--chart-1)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+                    <Line yAxisId="right" dataKey="ds" name="DS" stroke="var(--chart-2)" strokeWidth={2.5} dot={{ r: 2.5 }} isAnimationActive={false}>
+                      <LabelList dataKey="ds" position="top" fill="var(--foreground)" fontSize={10} formatter={(v) => fmtPct(v, 0)} />
+                    </Line>
+                  </ComposedChart>
+                </Chart>
+              )}
+            </CardContent>
+          </Card>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // BREAKDOWN VIEW (chart + sortable table + metric toggle)
+      // ----------------------------------------------------------------------
+      const METRICS = {
+        ds: { label: "Taxa DS", pick: (a) => a.ds, fmt: (a) => fmtPct(a.ds) },
+        desp: { label: "Volume", pick: (a) => a.desp, fmt: (a) => fmtInt(a.desp) },
+        ins: { label: "Insucessos", pick: (a) => a.ins, fmt: (a) => fmtInt(a.ins) },
+      };
+      function SortHead({ label, col, sort, onSort, align }) {
+        const active = sort.key === col;
+        return (
+          <th className={cx("px-3 py-2 text-xs", align === "left" ? "text-left" : "text-right")}>
+            <button type="button" onClick={() => onSort(col)}
+              className={cx("inline-flex items-center gap-1 font-medium transition-colors hover:text-foreground", align !== "left" && "flex-row-reverse", active ? "text-foreground" : "text-muted-foreground")}>
+              {label}
+              {active ? <Icon name={sort.dir === "asc" ? "up" : "down"} className="size-3.5" /> : <Icon name="sort" className="size-3.5 opacity-50" />}
+            </button>
+          </th>
+        );
+      }
+      function BreakdownView({ data, rows, dimKey, title, description, chartLimit = 14, minRotas = 0 }) {
+        const [metric, setMetric] = useState("ds");
+        const [sort, setSort] = useState({ key: "desp", dir: "desc" });
+        const allAggs = useMemo(() => aggregateBy(data, rows, dimKey, { sortBy: "desp", minRotas }), [data, rows, dimKey, minRotas]);
+        const sortedAggs = useMemo(() => {
+          const arr = [...allAggs];
+          arr.sort((a, b) => {
+            if (sort.key === "nome") return sort.dir === "asc" ? a.nome.localeCompare(b.nome) : b.nome.localeCompare(a.nome);
+            const diff = a[sort.key] - b[sort.key];
+            return sort.dir === "asc" ? diff : -diff;
+          });
+          return arr;
+        }, [allAggs, sort]);
+        const chartData = useMemo(() => {
+          const m = METRICS[metric];
+          const base = [...allAggs].sort((a, b) => metric === "ds" ? m.pick(a) - m.pick(b) : m.pick(b) - m.pick(a));
+          return base.slice(0, chartLimit).map((a) => ({ nome: a.nome, val: Number(m.pick(a).toFixed(metric === "ds" ? 1 : 0)), ds: a.ds, label: m.fmt(a) }));
+        }, [allAggs, metric, chartLimit]);
+        const chartHeight = Math.max(200, chartData.length * 34 + 20);
+        const activeColor = metric === "desp" ? "var(--chart-1)" : metric === "ins" ? "var(--chart-bad)" : undefined;
+        function toggleSort(key) {
+          setSort((s) => s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "nome" ? "asc" : "desc" });
+        }
+        return (
+          <Card>
+            <CardHeader className="flex-row items-start justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <CardTitle>{title}</CardTitle>
+                {description && <CardDescription>{description}</CardDescription>}
+              </div>
+              <div className="flex shrink-0 rounded-md border border-border p-0.5">
+                {Object.keys(METRICS).map((k) => (
+                  <button key={k} type="button" onClick={() => setMetric(k)}
+                    className={cx("rounded px-2.5 py-1 text-xs font-medium transition-colors", metric === k ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                    {METRICS[k].label}
+                  </button>
+                ))}
+              </div>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-5">
+              <Chart height={chartHeight}>
+                <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 56, top: 4, bottom: 4 }}>
+                  <XAxis type="number" hide domain={metric === "ds" ? [0, 100] : undefined} />
+                  <YAxis type="category" dataKey="nome" width={150} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "var(--muted-foreground)" }} />
+                  <Tooltip cursor={{ fill: "var(--muted)", opacity: 0.5 }} content={(p) => <TooltipContent {...p} format={(v) => [String(v), " " + METRICS[metric].label]} />} />
+                  {metric === "ds" && <ReferenceLine x={DS_META} stroke="var(--brand-navy)" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: `Meta ${DS_META}%`, position: "top", fill: "var(--brand-navy)", fontSize: 10 }} />}
+                  <Bar dataKey="val" radius={4} barSize={18} isAnimationActive={false}>
+                    {chartData.map((d, i) => <Cell key={i} fill={metric === "ds" ? dsColorVar(d.ds) : activeColor} />)}
+                    <LabelList dataKey="label" position="right" offset={8} fill="var(--foreground)" fontSize={11} />
+                  </Bar>
+                </BarChart>
+              </Chart>
+              <div className="max-h-[420px] overflow-auto rounded-md border border-border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-card">
+                    <tr className="border-b border-border">
+                      <SortHead label={title.replace(/^.*por /i, "")} col="nome" sort={sort} onSort={toggleSort} align="left" />
+                      <SortHead label="Despachado" col="desp" sort={sort} onSort={toggleSort} />
+                      <SortHead label="Entregue" col="entr" sort={sort} onSort={toggleSort} />
+                      <SortHead label="Insucessos" col="ins" sort={sort} onSort={toggleSort} />
+                      <SortHead label="Rotas" col="rotas" sort={sort} onSort={toggleSort} />
+                      <SortHead label="DS" col="ds" sort={sort} onSort={toggleSort} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedAggs.map((a) => (
+                      <tr key={a.nome} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 font-medium">{a.nome}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(a.desp)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtInt(a.entr)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmtInt(a.ins)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmtInt(a.rotas)}</td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums" style={{ color: dsColorVar(a.ds) }}>{fmtPct(a.ds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // CROSS MATRIX
+      // ----------------------------------------------------------------------
+      function cellBg(ds, rotas) {
+        if (rotas === 0) return "transparent";
+        const color = dsColorVar(ds);
+        return color.replace("var(", "color-mix(in oklch, var(").replace(")", ") 22%, var(--card))");
+      }
+      function CrossMatrix({ data, rows, rowDim, colDim, title, description, minRotas = 5 }) {
+        const ct = useMemo(() => crossTab(data, rows, rowDim, colDim, { minRotas }), [data, rows, rowDim, colDim, minRotas]);
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-base">{title}</CardTitle>{description && <CardDescription>{description}</CardDescription>}</CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full border-separate border-spacing-1 text-sm">
+                  <thead>
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">{DIM_LABEL[rowDim]}</th>
+                      {ct.colLabels.map((c) => <th key={c} className="px-2 py-1.5 text-center text-xs font-semibold text-muted-foreground">{c}</th>)}
+                      <th className="px-2 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-foreground">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ct.rowLabels.map((rLab) => {
+                      const rTot = ct.rowTotal(rLab);
+                      return (
+                        <tr key={rLab}>
+                          <th className="sticky left-0 z-10 max-w-[180px] truncate bg-card px-2 py-1.5 text-left font-medium text-foreground" title={rLab}>{rLab}</th>
+                          {ct.colLabels.map((cLab) => {
+                            const cell = ct.cell(rLab, cLab);
+                            const rotas = cell ? cell.rotas : 0;
+                            return (
+                              <td key={cLab} className="rounded-md px-2 py-1.5 text-center" style={{ backgroundColor: rotas > 0 ? cellBg(cell.ds, rotas) : "transparent" }}>
+                                {rotas > 0 ? (
+                                  <span className="flex flex-col leading-tight">
+                                    <span className="font-mono font-semibold" style={{ color: dsColorVar(cell.ds) }}>{fmtPct(cell.ds, 1)}</span>
+                                    <span className="text-[10px] text-muted-foreground">{fmtInt(rotas)}</span>
+                                  </span>
+                                ) : <span className="text-muted-foreground/40">—</span>}
+                              </td>
+                            );
+                          })}
+                          <td className="rounded-md bg-muted px-2 py-1.5 text-center">
+                            <span className="flex flex-col leading-tight">
+                              <span className="font-mono font-semibold" style={{ color: dsColorVar(rTot.ds) }}>{fmtPct(rTot.ds, 1)}</span>
+                              <span className="text-[10px] text-muted-foreground">{fmtInt(rTot.rotas)}</span>
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr>
+                      <th className="sticky left-0 z-10 bg-card px-2 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-foreground">Total</th>
+                      {ct.colLabels.map((cLab) => {
+                        const cTot = ct.colTotal(cLab);
+                        return (
+                          <td key={cLab} className="rounded-md bg-muted px-2 py-1.5 text-center">
+                            <span className="flex flex-col leading-tight">
+                              <span className="font-mono font-semibold" style={{ color: dsColorVar(cTot.ds) }}>{fmtPct(cTot.ds, 1)}</span>
+                              <span className="text-[10px] text-muted-foreground">{fmtInt(cTot.rotas)}</span>
+                            </span>
+                          </td>
+                        );
+                      })}
+                      <td className="rounded-md bg-primary px-2 py-1.5 text-center"><span className="text-[10px] font-semibold uppercase text-primary-foreground">Geral</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-4 text-[11px] text-muted-foreground">
+                <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: "var(--chart-success)" }} />{`DS ≥ meta (${DS_META}%)`}</span>
+                <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: "var(--chart-warn)" }} />{`95% – ${DS_META}%`}</span>
+                <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: "var(--chart-bad)" }} />{"< 95%"}</span>
+                <span>Valor = taxa de DS · número abaixo = rotas</span>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // OFFENDERS / TOPS
+      // ----------------------------------------------------------------------
+      function RankList({ items, kind }) {
+        if (items.length === 0) return <p className="px-1 py-6 text-center text-sm text-muted-foreground">Sem dados suficientes</p>;
+        const max = Math.max(...items.map((i) => i.desp), 1);
+        return (
+          <ul className="flex flex-col gap-2">
+            {items.map((a, i) => (
+              <li key={a.nome} className="flex flex-col gap-1">
+                <div className="flex items-center justify-between gap-2 text-sm">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="w-4 shrink-0 text-xs font-semibold text-muted-foreground">{i + 1}</span>
+                    <span className="truncate font-medium text-foreground" title={a.nome}>{a.nome}</span>
+                  </span>
+                  <span className="shrink-0 font-mono text-sm font-semibold" style={{ color: dsColorVar(a.ds) }}>{fmtPct(a.ds, 1)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full" style={{ width: `${(a.desp / max) * 100}%`, backgroundColor: kind === "bad" ? "var(--chart-bad)" : "var(--chart-success)", opacity: 0.55 }} />
+                  </div>
+                  <span className="w-24 shrink-0 text-right text-[11px] text-muted-foreground">{fmtInt(a.rotas)} rotas · {fmtInt(a.ins)} ins.</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        );
+      }
+      function OffendersTops({ data, rows, dimKey, title, topN = 5, minRotas = 10 }) {
+        const worst = useMemo(() => aggregateBy(data, rows, dimKey, { sortBy: "ds", dir: "asc", minRotas, limit: topN }), [data, rows, dimKey, minRotas, topN]);
+        const best = useMemo(() => aggregateBy(data, rows, dimKey, { sortBy: "ds", dir: "desc", minRotas, limit: topN }), [data, rows, dimKey, minRotas, topN]);
+        return (
+          <Card>
+            <CardHeader><CardTitle className="text-base">{title}</CardTitle></CardHeader>
+            <CardContent className="grid gap-5 sm:grid-cols-2">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--chart-bad)" }}><Icon name="trendDown" className="size-3.5" />Ofensores (menor DS)</div>
+                <RankList items={worst} kind="bad" />
+              </div>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--chart-success)" }}><Icon name="trendUp" className="size-3.5" />Tops (maior DS)</div>
+                <RankList items={best} kind="good" />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // TAB COMPOSITIONS
+      // ----------------------------------------------------------------------
+      function TabResumo({ data, rows }) {
+        const trend = useMemo(() => trendByDate(data, rows), [data, rows]);
+        const mlp = useMemo(() => aggregateBy(data, rows, "mlp", { sortBy: "desp", dir: "desc", limit: 20 }), [data, rows]);
+        return <div className="flex flex-col gap-4"><DsTrendChart points={trend} /><MlpSummaryChart data={mlp} /></div>;
+      }
+      function TabClusterModal({ data, rows }) {
+        return (
+          <div className="flex flex-col gap-4">
+            <CrossMatrix data={data} rows={rows} rowDim="cluster" colDim="modalAgg" title="Matriz Cluster × Modal" description="Taxa de Delivery Success por cluster operacional e modal agregado — identifique combinações ofensoras" minRotas={5} />
+            <OffendersTops data={data} rows={rows} dimKey="regiao" title="Regiões — ofensores e tops" minRotas={20} />
+            <OffendersTops data={data} rows={rows} dimKey="cluster" title="Clusters — ofensores e tops" minRotas={20} />
+            <OffendersTops data={data} rows={rows} dimKey="mlp" title="MLPs — ofensores e tops" minRotas={15} />
+          </div>
+        );
+      }
+      function TabMlpRegiao({ data, rows }) {
+        return (
+          <div className="flex flex-col gap-4">
+            <CrossMatrix data={data} rows={rows} rowDim="regiao" colDim="mlp" title="Matriz Região × MLP" description="Taxa de Delivery Success de cada região por MLP — identifique as regiões ofensoras em cada operação" minRotas={8} />
+            <OffendersTops data={data} rows={rows} dimKey="regiao" title="Regiões — ofensores e tops" minRotas={20} />
+            <div className="grid gap-4 lg:grid-cols-2">
+              <OffendersTops data={data} rows={rows} dimKey="mlp" title="MLPs — ofensores e tops" minRotas={15} />
+              <OffendersTops data={data} rows={rows} dimKey="modalAgg" title="Modal — ofensores e tops" minRotas={20} />
+            </div>
+          </div>
+        );
+      }
+      function TabCicloMlpModal({ data, rows }) {
+        const cycles = useMemo(() => aggregateBy(data, rows, "ciclo", { sortBy: "desp", dir: "desc" }), [data, rows]);
+        const [ciclo, setCiclo] = useState("");
+        const cicloCol = DIM_COL.ciclo;
+        const cicloIdx = ciclo ? data.dims.ciclo.indexOf(ciclo) : -1;
+        const slicedRows = useMemo(() => cicloIdx === -1 ? rows : rows.filter((r) => r[cicloCol] === cicloIdx), [rows, cicloIdx, cicloCol]);
+        const matrixTitle = ciclo ? `Matriz MLP × Modal — ciclo ${ciclo}` : "Matriz MLP × Modal — todos os ciclos";
+        return (
+          <div className="flex flex-col gap-4">
+            <BreakdownView data={data} rows={rows} dimKey="ciclo" title="Delivery Success por Ciclo" description="Visão geral de cada ciclo operacional — selecione um ciclo abaixo para cruzar com MLP e Modal" chartLimit={12} />
+            <Card>
+              <CardHeader className="flex-row items-center justify-between gap-3">
+                <div><CardTitle className="text-base">Fatiar por ciclo</CardTitle><CardDescription>A matriz e os destaques abaixo respeitam o ciclo selecionado</CardDescription></div>
+                <select value={ciclo} onChange={(e) => setCiclo(e.target.value)} className="h-9 w-[200px] rounded-md border border-border bg-background px-2 text-sm">
+                  <option value="">Todos os ciclos</option>
+                  {cycles.map((c) => <option key={c.nome} value={c.nome}>{c.nome} · {fmtPct(c.ds, 1)}</option>)}
+                </select>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {cycles.map((c) => {
+                    const active = c.nome === ciclo;
+                    const diff = vsMeta(c.ds);
+                    return (
+                      <button key={c.nome} type="button" onClick={() => setCiclo(active ? "" : c.nome)}
+                        className={cx("rounded-lg border px-3 py-2 text-left transition-colors", active ? "border-primary bg-accent" : "border-border hover:bg-accent")}>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">{c.nome}</span>
+                          <span className="rounded bg-muted px-1.5 py-0 font-mono text-[11px]" style={{ color: dsColorVar(c.ds) }}>{fmtPct(c.ds, 1)}</span>
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">{fmtInt(c.rotas)} rotas · {diff >= 0 ? "+" : ""}{fmtDec(diff, 1)} p.p.</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+            <CrossMatrix data={data} rows={slicedRows} rowDim="mlp" colDim="modalAgg" title={matrixTitle} description="Taxa de Delivery Success de cada MLP por modal agregado — identifique combinações ofensoras dentro do ciclo" minRotas={3} />
+            <BreakdownView data={data} rows={slicedRows} dimKey="mlp" title={ciclo ? `MLPs no ciclo ${ciclo}` : "MLPs — todos os ciclos"} description="Ranking de MLP no recorte de ciclo selecionado" chartLimit={20} />
+          </div>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // FILTER BAR + KPI ROW + ANALYSIS TAB
+      // ----------------------------------------------------------------------
+      function optionsFor(data, field) {
+        const values = [...data.dims[field]].filter((v) => v && v !== "Não informado");
+        if (field === "faixa" || field === "date") return values;
+        return values.sort((a, b) => a.localeCompare(b, "pt-BR"));
+      }
+      function FilterBar({ data, fields, value, onChange, range, onRangeChange }) {
+        const dates = availableDates(data);
+        const activeCount = fields.filter((f) => value[f]).length + ((range.from || range.to) ? 1 : 0);
+        const setField = (field, v) => { const next = { ...value }; if (!v) delete next[field]; else next[field] = v; onChange(next); };
+        return (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
+            <div className="flex flex-wrap items-end gap-3">
+              <span className="self-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">Filtros</span>
+              <div className="flex items-end gap-2 rounded-md border border-dashed border-border px-2.5 py-1.5">
+                <Icon name="calendar" className="mb-2 size-4 text-muted-foreground" />
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">De</label>
+                  <select value={range.from || ""} onChange={(e) => onRangeChange({ ...range, from: e.target.value || undefined })} className="h-9 w-[140px] rounded-md border border-border bg-background px-2 text-sm">
+                    <option value="">Início</option>
+                    {dates.filter((d) => !range.to || d <= range.to).map((d) => <option key={d} value={d}>{fmtDateFull(d)}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Até</label>
+                  <select value={range.to || ""} onChange={(e) => onRangeChange({ ...range, to: e.target.value || undefined })} className="h-9 w-[140px] rounded-md border border-border bg-background px-2 text-sm">
+                    <option value="">Fim</option>
+                    {dates.filter((d) => !range.from || d >= range.from).map((d) => <option key={d} value={d}>{fmtDateFull(d)}</option>)}
+                  </select>
+                </div>
+              </div>
+              {fields.map((field) => (
+                <div key={field} className="flex flex-col gap-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">{DIM_LABEL[field]}</label>
+                  <select value={value[field] || ""} onChange={(e) => setField(field, e.target.value)} className="h-9 w-[170px] rounded-md border border-border bg-background px-2 text-sm">
+                    <option value="">Todos</option>
+                    {optionsFor(data, field).map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                </div>
+              ))}
+              {activeCount > 0 && (
+                <button type="button" onClick={() => { onChange({}); onRangeChange({}); }} className="flex h-9 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:text-foreground">
+                  <Icon name="x" className="size-3.5" />Limpar ({activeCount})
+                </button>
+              )}
+              <span className="ml-auto self-center rounded-md border border-brand-navy/30 px-2 py-1 text-xs text-brand-navy">Meta DS {fmtPct(DS_META, 1)}</span>
+            </div>
+          </div>
+        );
+      }
+      function KpiRow({ items }) {
+        return (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+            {items.map((k) => (
+              <div key={k.label} className="flex flex-col gap-1 rounded-xl border border-border bg-card p-4 shadow-sm">
+                <p className="text-xs font-medium text-muted-foreground">{k.label}</p>
+                <p className="text-2xl font-bold leading-tight tabular-nums" style={{ color: toneColor(k.tone) }}>{k.value}</p>
+                {k.hint && <p className="text-xs text-muted-foreground">{k.hint}</p>}
+              </div>
+            ))}
+          </div>
+        );
+      }
+      function AnalysisTab({ data, filterFields, render }) {
+        const fields = useMemo(() => ["svc", ...filterFields.filter((f) => f !== "svc")], [filterFields]);
+        const hasDefaultSvc = data.dims.svc.includes(DEFAULT_SVC);
+        const lastDate = useMemo(() => { const d = availableDates(data); return d[d.length - 1]; }, [data]);
+        const [filters, setFilters] = useState(hasDefaultSvc ? { svc: DEFAULT_SVC } : {});
+        const [range, setRange] = useState(lastDate ? { from: lastDate, to: lastDate } : {});
+        const rows = useMemo(() => filterRows(data, filters, range), [data, filters, range]);
+        const t = useMemo(() => totals(rows), [rows]);
+        const diff = vsMeta(t.ds);
+        const kpis = [
+          { label: "Delivery Success", value: fmtPct(t.ds, 2), hint: `${diff >= 0 ? "+" : ""}${fmtDec(diff, 2)} p.p. vs meta`, tone: dsTone(t.ds) },
+          { label: "Insucessos", value: fmtInt(t.ins), hint: fmtPct(t.desp > 0 ? (t.ins / t.desp) * 100 : 0, 2), tone: "bad" },
+          { label: "Pacotes despachados", value: fmtInt(t.desp) },
+          { label: "Pacotes entregues", value: fmtInt(t.entr), tone: "good" },
+          { label: "Rotas", value: fmtInt(t.rotas) },
+        ];
+        return (
+          <div className="flex flex-col gap-4">
+            <FilterBar data={data} fields={fields} value={filters} onChange={setFilters} range={range} onRangeChange={setRange} />
+            <KpiRow items={kpis} />
+            {render(rows)}
+          </div>
+        );
+      }
+
+      // ----------------------------------------------------------------------
+      // HEADER + DASHBOARD
+      // ----------------------------------------------------------------------
+      const TABS = [
+        { id: "resumo", label: "Resumo", icon: "resumo", fields: ["mlp", "regiao", "modalAgg", "contrato"] },
+        { id: "mlp", label: "MLP", icon: "mlp", fields: ["regiao", "modalAgg", "contrato", "faixa"] },
+        { id: "regiao", label: "Região & Cluster", icon: "regiao", fields: ["mlp", "modalAgg", "contrato", "faixa"] },
+        { id: "mlp-regiao", label: "MLP × Região", icon: "map", fields: ["mlp", "regiao", "modalAgg", "contrato", "faixa"] },
+        { id: "cluster-modal", label: "Cluster × Modal", icon: "grid", fields: ["mlp", "regiao", "modalAgg", "contrato", "faixa"] },
+        { id: "ciclo-mlp-modal", label: "Ciclo × MLP × Modal", icon: "layers", fields: ["mlp", "regiao", "modalAgg", "contrato", "faixa"] },
+        { id: "modal", label: "Modal", icon: "truck", fields: ["mlp", "regiao", "contrato", "faixa"] },
+        { id: "contrato", label: "Contrato", icon: "contrato", fields: ["mlp", "regiao", "modalAgg", "faixa"] },
+        { id: "hora", label: "Faixa de Hora", icon: "clock", fields: ["mlp", "regiao", "modalAgg", "contrato"] },
+      ];
+      function renderTabContent(id, data, rows) {
+        switch (id) {
+          case "resumo": return <TabResumo data={data} rows={rows} />;
+          case "mlp": return <BreakdownView data={data} rows={rows} dimKey="mlp" title="Delivery Success por MLP" description="Performance de cada MLP — alterne entre taxa de DS, volume e insucessos" chartLimit={20} />;
+          case "regiao": return (
+            <div className="flex flex-col gap-4">
+              <BreakdownView data={data} rows={rows} dimKey="regiao" title="Delivery Success por Região" description="Ranking de regiões por taxa de sucesso" chartLimit={16} />
+              <BreakdownView data={data} rows={rows} dimKey="cluster" title="Delivery Success por Cluster" description="Agrupamento por cluster operacional" chartLimit={16} />
+            </div>
+          );
+          case "mlp-regiao": return <TabMlpRegiao data={data} rows={rows} />;
+          case "cluster-modal": return <TabClusterModal data={data} rows={rows} />;
+          case "ciclo-mlp-modal": return <TabCicloMlpModal data={data} rows={rows} />;
+          case "modal": return (
+            <div className="flex flex-col gap-4">
+              <BreakdownView data={data} rows={rows} dimKey="modalAgg" title="Modal agregado" description="Moto, Utilitário, VUC, Van, Walker e Passeio" chartLimit={10} />
+              <BreakdownView data={data} rows={rows} dimKey="modalOrig" title="Modal original (detalhado)" description="Classificação original do veículo, sem agregação" chartLimit={24} />
+            </div>
+          );
+          case "contrato": return (
+            <div className="flex flex-col gap-4">
+              <BreakdownView data={data} rows={rows} dimKey="contrato" title="Delivery Success por Contrato" description="Tipo de contrato da rota" chartLimit={10} />
+              <CrossMatrix data={data} rows={rows} rowDim="mlp" colDim="contrato" title="Matriz MLP × Contrato" description="Taxa de DS de cada MLP por tipo de contrato" minRotas={5} />
+              <BreakdownView data={data} rows={rows} dimKey="mlp" title="Delivery Success por MLP" description="Visão de MLP dentro do recorte de contrato selecionado" chartLimit={20} />
+            </div>
+          );
+          case "hora": return (
+            <div className="flex flex-col gap-4">
+              <HourChart data={aggregateBy(data, rows, "faixa", { sortBy: "dimOrder" })} />
+              <BreakdownView data={data} rows={rows} dimKey="faixa" title="Detalhe por faixa de hora de saída" chartLimit={24} />
+            </div>
+          );
+          default: return null;
+        }
+      }
+      function BrandHeader({ meta, onRefresh, isRefreshing }) {
+        return (
+          <header className="bg-brand-yellow">
+            <div className="mx-auto flex max-w-[1400px] flex-col gap-3 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 items-center justify-center rounded-md bg-card px-3 shadow-sm"><span className="text-sm font-bold text-brand-blue">mercado livre</span></div>
+                <div>
+                  <h1 className="text-lg font-bold leading-tight text-brand-navy md:text-xl">Painel de Delivery Success</h1>
+                  <p className="text-sm font-medium text-brand-navy/70">Last Mile · {meta.estacao}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                <dl className="flex flex-wrap items-center gap-x-6 gap-y-1 text-brand-navy">
+                  <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-navy/60">Período</dt><dd className="text-sm font-bold tabular-nums">{fmtDateFull(meta.periodoInicio)} – {fmtDateFull(meta.periodoFim)}</dd></div>
+                  <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-navy/60">Rotas</dt><dd className="text-sm font-bold tabular-nums">{fmtInt(meta.totalRotas)}</dd></div>
+                  <div><dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-navy/60">Atualizado</dt><dd className="text-sm font-bold tabular-nums">{fmtUpdatedAt(meta.geradoEm)}</dd></div>
+                </dl>
+                <button type="button" onClick={onRefresh} disabled={isRefreshing} className="flex items-center gap-2 rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90 disabled:opacity-70">
+                  <Icon name="refresh" className={cx("size-4", isRefreshing && "animate-spin")} />{isRefreshing ? "Atualizando…" : "Atualizar dados"}
+                </button>
+              </div>
+            </div>
+          </header>
+        );
+      }
+      function Dashboard() {
+        const [data, setData] = useState(null);
+        const [status, setStatus] = useState("loading");
+        const [refreshing, setRefreshing] = useState(false);
+        const [active, setActive] = useState("resumo");
+
+        const load = useCallback(async (isRefresh) => {
+          try {
+            if (isRefresh) setRefreshing(true); else setStatus("loading");
+            const res = await fetch(SHEET_CSV_URL + "&_=" + Date.now(), { cache: "no-store" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const text = await res.text();
+            const built = buildDashboard(text);
+            setData(built);
+            setStatus("ready");
+          } catch (e) {
+            console.log("[v0] erro ao carregar planilha:", e.message);
+            setStatus("error");
+          } finally {
+            setRefreshing(false);
+          }
+        }, []);
+        useEffect(() => { load(false); }, [load]);
+
+        if (status === "loading") return <div className="flex min-h-[60vh] items-center justify-center text-muted-foreground">Carregando dados da operação…</div>;
+        if (status === "error" || !data) return <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center"><p className="font-medium" style={{ color: "var(--chart-bad)" }}>Não foi possível carregar os dados da planilha.</p><button onClick={() => load(false)} className="rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white">Tentar novamente</button></div>;
+
+        const tab = TABS.find((t) => t.id === active);
+        return (
+          <div className="min-h-screen bg-background">
+            <BrandHeader meta={data.meta} onRefresh={() => load(true)} isRefreshing={refreshing} />
+            <main className="mx-auto max-w-[1400px] px-4 py-6">
+              <div className="mb-5 overflow-x-auto">
+                <div className="flex flex-wrap justify-start gap-1 rounded-lg bg-muted p-1">
+                  {TABS.map((t) => (
+                    <button key={t.id} type="button" onClick={() => setActive(t.id)}
+                      className={cx("flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors", active === t.id ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground")}>
+                      <Icon name={t.icon} className="size-4" />{t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <AnalysisTab key={tab.id} data={data} filterFields={tab.fields} render={(rows) => renderTabContent(tab.id, data, rows)} />
+            </main>
+          </div>
+        );
+      }
+
+      ReactDOM.createRoot(document.getElementById("root")).render(<Dashboard />);
+    </script>
+
+    <script>
+      // Transpile the app with the CLASSIC JSX runtime so no ES module
+      // imports are injected (keeps everything global, no bundler needed).
+      (function () {
+        function fail(msg) {
+          var r = document.getElementById("root");
+          if (r)
+            r.innerHTML =
+              '<div style="min-height:60vh;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;color:#b91c1c;font-family:system-ui;text-align:center;padding:24px">' +
+              "<strong>Falha ao iniciar o painel</strong><span style=\"color:#666;max-width:480px;font-size:13px\">" +
+              msg +
+              "</span></div>";
+        }
+        try {
+          var src = document.getElementById("app-source").textContent;
+          var out = Babel.transform(src, {
+            presets: [["react", { runtime: "classic" }]],
+          }).code;
+          (0, eval)(out);
+        } catch (e) {
+          console.log("[v0] bootstrap error:", e);
+          fail((e && e.message) || String(e));
+        }
+      })();
+    </script>
+  </body>
+</html>
