@@ -1,0 +1,698 @@
+<!doctype html>
+<html lang="pt-BR" class="bg-background">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#ffe600" />
+    <title>Calendarização de Frota · Last Mile · SMG1</title>
+    <meta
+      name="description"
+      content="Calendarização de Frota Last Mile (SMG1) — calendarização por MLP, resumo por modal, tabela placa a placa e GAP semanal."
+    />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            },
+            colors: {
+              brand: '#ffe600',
+              'brand-foreground': '#1f2430',
+              background: '#ededed',
+              foreground: '#1f2430',
+              card: '#ffffff',
+              'card-foreground': '#1f2430',
+              muted: '#f3f4f6',
+              'muted-foreground': '#6b7280',
+              border: '#e3e6ea',
+              primary: '#2d6df6',
+              'primary-foreground': '#ffffff',
+              accent: '#fdf3bf',
+              'accent-foreground': '#5c4a00',
+            },
+          },
+        },
+      }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      html { -webkit-text-size-adjust: 100%; }
+      body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+      .tabular-nums { font-variant-numeric: tabular-nums; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body class="min-h-screen bg-background text-foreground">
+    <!-- Barra superior da marca (Mercado Livre) -->
+    <header class="w-full bg-brand">
+      <div class="mx-auto flex max-w-[1400px] items-center justify-between gap-4 px-4 py-3 md:px-6">
+        <img
+          src="/logos/mercado-livre-wordmark.svg"
+          alt="Mercado Livre"
+          class="h-7 w-auto md:h-8"
+          onerror="this.style.display='none'"
+        />
+        <div class="hidden items-center gap-2 text-sm font-medium text-brand-foreground/80 sm:flex">
+          Você está vendo:
+          <span class="font-bold text-brand-foreground">Last Mile · Regional MG</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Cabeçalho da página -->
+    <div class="border-b border-border bg-background">
+      <div class="mx-auto flex max-w-[1400px] flex-wrap items-end justify-between gap-4 px-4 py-6 md:px-6">
+        <div>
+          <h1 class="text-2xl font-bold leading-tight">Calendarização de Frota</h1>
+          <p class="mt-1 flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            <i data-lucide="map-pin" class="size-4"></i>
+            Facility SMG1 · Last Mile · Regional MG
+          </p>
+        </div>
+        <div class="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5">
+          <i data-lucide="calendar-range" class="size-4 text-primary"></i>
+          <div class="leading-tight">
+            <div id="week-current" class="text-sm font-bold text-foreground">Semana —</div>
+            <div id="week-prev" class="text-[11px] font-medium text-muted-foreground">carregando…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <main class="mx-auto max-w-[1400px] space-y-4 px-4 py-6 md:px-6">
+      <!-- Estados de carregamento / erro -->
+      <div id="status" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        Carregando a base sincronizada da planilha publicada…
+      </div>
+
+      <!-- KPIs -->
+      <div id="kpis" class="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6" hidden></div>
+
+      <!-- Filtros -->
+      <div id="filters" class="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3" hidden>
+        <div class="relative">
+          <i data-lucide="search" class="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"></i>
+          <input
+            id="f-search"
+            type="text"
+            placeholder="Buscar placa..."
+            class="h-9 w-[170px] rounded-md border border-border bg-card pl-8 pr-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        </div>
+        <select id="f-mlp" class="h-9 w-[190px] rounded-md border border-border bg-card px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"></select>
+        <select id="f-modal" class="h-9 w-[200px] rounded-md border border-border bg-card px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"></select>
+        <select id="f-contrato" class="h-9 w-[140px] rounded-md border border-border bg-card px-2 text-sm outline-none focus:ring-2 focus:ring-primary/40"></select>
+        <span id="f-count" class="ml-auto text-xs text-muted-foreground"></span>
+      </div>
+
+      <!-- Abas -->
+      <div id="tabs-wrap" hidden>
+        <div class="inline-flex flex-wrap gap-1 rounded-lg border border-border bg-muted/60 p-1" role="tablist">
+          <button data-tab="calendario" class="tab-btn flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium">
+            <i data-lucide="calendar-range" class="size-4"></i> Calendarização por MLP
+          </button>
+          <button data-tab="resumo" class="tab-btn flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium">
+            <i data-lucide="layout-list" class="size-4"></i> Resumo
+          </button>
+          <button data-tab="tabela" class="tab-btn flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium">
+            <i data-lucide="table-2" class="size-4"></i> Placa a Placa
+          </button>
+          <button data-tab="gap" class="tab-btn flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium">
+            <i data-lucide="git-compare-arrows" class="size-4"></i> GAP semanal
+          </button>
+        </div>
+
+        <div id="panel-calendario" class="tab-panel mt-4"></div>
+        <div id="panel-resumo" class="tab-panel mt-4" hidden></div>
+        <div id="panel-tabela" class="tab-panel mt-4" hidden></div>
+        <div id="panel-gap" class="tab-panel mt-4" hidden></div>
+      </div>
+
+      <p class="pt-2 text-center text-xs text-muted-foreground">
+        Base sincronizada da planilha publicada · 7 dias por semana · SMG1
+      </p>
+    </main>
+
+    <script>
+      /* ============================================================
+       * Camada de dados (espelha lib/fleet-data.ts)
+       * ============================================================ */
+      const CSV_URL =
+        'https://docs.google.com/spreadsheets/d/e/2PACX-1vS3vkbYxzVJel82h70axwjMPYmzM3avJ14hwFIXB17PsoZ5NiJZPE-Iiia7p8RCvkMVSDyegi4zSDNP/pub?gid=928223678&single=true&output=csv'
+      const FACILITY = 'SMG1'
+      const DAY_KEYS = ['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo']
+      const DAY_LABELS = { segunda: 'Seg', terca: 'Ter', quarta: 'Qua', quinta: 'Qui', sexta: 'Sex', sabado: 'Sáb', domingo: 'Dom' }
+      const DAY_LABELS_FULL = { segunda: 'Segunda', terca: 'Terça', quarta: 'Quarta', quinta: 'Quinta', sexta: 'Sexta', sabado: 'Sábado', domingo: 'Domingo' }
+
+      const SHIFT_META = {
+        AM1: { label: 'AM1', chip: 'bg-sky-100 text-sky-800 border-sky-200', dot: 'bg-sky-500', operating: true },
+        PM1: { label: 'PM1', chip: 'bg-amber-100 text-amber-800 border-amber-200', dot: 'bg-amber-500', operating: true },
+        AM_LM: { label: 'AM / LM', chip: 'bg-emerald-100 text-emerald-800 border-emerald-200', dot: 'bg-emerald-500', operating: true },
+        CHP: { label: 'CHP', chip: 'bg-teal-100 text-teal-800 border-teal-200', dot: 'bg-teal-500', operating: true },
+        FOLGA: { label: 'Folga', chip: 'bg-muted text-muted-foreground border-border', dot: 'bg-gray-400', operating: false },
+        MANUTENCAO: { label: 'Manutenção', chip: 'bg-rose-100 text-rose-800 border-rose-200', dot: 'bg-rose-500', operating: false },
+        OUTRO: { label: '—', chip: 'bg-muted text-muted-foreground border-border', dot: 'bg-gray-300', operating: false },
+      }
+      function classifyShift(raw) {
+        const v = (raw || '').trim().toLowerCase()
+        if (!v) return 'OUTRO'
+        if (v === 'am1') return 'AM1'
+        if (v === 'pm1') return 'PM1'
+        if (v.includes('lm')) return 'AM_LM'
+        if (v === 'chp') return 'CHP'
+        if (v.includes('folga')) return 'FOLGA'
+        if (v.includes('manuten')) return 'MANUTENCAO'
+        return 'OUTRO'
+      }
+
+      const MODAL_META = {
+        VUC: { label: 'VUC', short: 'VUCs', dot: 'bg-primary' },
+        VAN: { label: 'Van', short: 'Vans', dot: 'bg-emerald-500' },
+        UTILITARIO: { label: 'Utilitário', short: 'Utilitários', dot: 'bg-amber-500' },
+        OUTRO: { label: 'Outros', short: 'Outros', dot: 'bg-gray-400' },
+      }
+      const RESUMO_MODAIS = ['VUC', 'VAN', 'UTILITARIO']
+      function classifyModal(raw) {
+        const v = (raw || '').trim().toLowerCase()
+        if (!v) return 'OUTRO'
+        if (v.includes('vuc')) return 'VUC'
+        if (v.includes('van')) return 'VAN'
+        if (v.includes('utilit') || v.includes('fiorino') || v.includes('furg')) return 'UTILITARIO'
+        return 'OUTRO'
+      }
+
+      function parseCsv(text) {
+        const rows = []
+        let field = '', row = [], inQuotes = false
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i]
+          if (inQuotes) {
+            if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++ } else inQuotes = false }
+            else field += c
+          } else if (c === '"') inQuotes = true
+          else if (c === ',') { row.push(field); field = '' }
+          else if (c === '\n') { row.push(field); rows.push(row); row = []; field = '' }
+          else if (c === '\r') { /* ignora */ }
+          else field += c
+        }
+        if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row) }
+        return rows
+      }
+
+      async function fetchCsvText() {
+        let last = ''
+        for (let attempt = 0; attempt < 8; attempt++) {
+          const sep = CSV_URL.includes('?') ? '&' : '?'
+          const url = `${CSV_URL}${sep}_cb=${Date.now()}_${attempt}`
+          try {
+            const res = await fetch(url, { cache: 'no-store' })
+            const text = await res.text()
+            last = text
+            if (!/Carregando/i.test(text.slice(0, 200)) && text.length > 500) return text
+          } catch (e) { /* tenta de novo */ }
+          await new Promise((r) => setTimeout(r, 1500))
+        }
+        return last
+      }
+
+      async function getFleetData() {
+        try {
+          const text = await fetchCsvText()
+          const rows = parseCsv(text)
+          if (rows.length < 2 || /Carregando/i.test((rows[0] && rows[0][0]) || '')) {
+            return { records: [], semanas: [], mlps: [], modais: [], contratos: [], error: 'A planilha ainda estava carregando os dados. Recarregue em instantes.' }
+          }
+          const IDX = { regional: 0, macro: 1, facility: 4, modal: 8, placa: 7, mlp: 9, contrato: 10, dayStart: 11, semana: 18 }
+          const records = []
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i]
+            if (!r || r.length < 18) continue
+            const facility = (r[IDX.facility] || '').trim()
+            if (facility !== FACILITY) continue
+            const days = {}
+            DAY_KEYS.forEach((d, di) => { days[d] = (r[IDX.dayStart + di] || '').trim() })
+            records.push({
+              regional: (r[IDX.regional] || '').trim(),
+              macroRegional: (r[IDX.macro] || '').trim(),
+              facility,
+              modal: (r[IDX.modal] || '').trim() || '—',
+              placa: (r[IDX.placa] || '').trim() || '—',
+              mlp: (r[IDX.mlp] || '').trim() || '—',
+              contrato: (r[IDX.contrato] || '').trim() || '—',
+              semana: (r[IDX.semana] || '').trim() || '—',
+              days,
+            })
+          }
+          const semanas = Array.from(new Set(records.map((r) => r.semana))).filter((s) => s && s !== '—').sort((a, b) => Number(a) - Number(b))
+          const mlps = Array.from(new Set(records.map((r) => r.mlp))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+          const modais = Array.from(new Set(records.map((r) => r.modal))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+          const contratos = Array.from(new Set(records.map((r) => r.contrato))).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+          return { records, semanas, mlps, modais, contratos }
+        } catch (e) {
+          return { records: [], semanas: [], mlps: [], modais: [], contratos: [], error: (e && e.message) || 'Erro ao carregar a base.' }
+        }
+      }
+
+      /* ============================================================
+       * Agregações (espelham lib/fleet-metrics.ts)
+       * ============================================================ */
+      function emptyBreakdown() {
+        return { operating: 0, folga: 0, manutencao: 0, outro: 0, total: 0, byShift: { AM1: 0, PM1: 0, AM_LM: 0, CHP: 0, FOLGA: 0, MANUTENCAO: 0, OUTRO: 0 } }
+      }
+      function addToBreakdown(bd, cat) {
+        bd.total += 1; bd.byShift[cat] += 1
+        if (cat === 'FOLGA') bd.folga += 1
+        else if (cat === 'MANUTENCAO') bd.manutencao += 1
+        else if (cat === 'OUTRO') bd.outro += 1
+        else bd.operating += 1
+      }
+      function buildMlpSummaries(records) {
+        const map = new Map()
+        for (const r of records) {
+          let s = map.get(r.mlp)
+          if (!s) {
+            const days = {}, operatingByDay = {}
+            DAY_KEYS.forEach((d) => { days[d] = emptyBreakdown(); operatingByDay[d] = 0 })
+            s = { mlp: r.mlp, frota: 0, days, operatingByDay, totalOperating: 0, avgOccupancy: 0, manutencaoPlacas: 0 }
+            map.set(r.mlp, s)
+          }
+          s.frota += 1
+          let hasManut = false
+          DAY_KEYS.forEach((d) => { const cat = classifyShift(r.days[d]); addToBreakdown(s.days[d], cat); if (cat === 'MANUTENCAO') hasManut = true })
+          if (hasManut) s.manutencaoPlacas += 1
+        }
+        const list = Array.from(map.values())
+        for (const s of list) {
+          let opSum = 0, occSum = 0
+          DAY_KEYS.forEach((d) => { const bd = s.days[d]; s.operatingByDay[d] = bd.operating; opSum += bd.operating; occSum += bd.total > 0 ? bd.operating / bd.total : 0 })
+          s.totalOperating = opSum; s.avgOccupancy = occSum / DAY_KEYS.length
+        }
+        return list.sort((a, b) => b.frota - a.frota)
+      }
+      function buildKpis(records) {
+        const operatingByDay = {}, totalByDay = {}
+        DAY_KEYS.forEach((d) => { operatingByDay[d] = 0; totalByDay[d] = 0 })
+        const mlps = new Set(), modais = new Set(), contratos = new Set()
+        let manutencaoPlacas = 0
+        for (const r of records) {
+          mlps.add(r.mlp); modais.add(r.modal); contratos.add(r.contrato)
+          let hasManut = false
+          DAY_KEYS.forEach((d) => { const cat = classifyShift(r.days[d]); totalByDay[d] += 1; if (cat !== 'FOLGA' && cat !== 'MANUTENCAO' && cat !== 'OUTRO') operatingByDay[d] += 1; if (cat === 'MANUTENCAO') hasManut = true })
+          if (hasManut) manutencaoPlacas += 1
+        }
+        let occSum = 0, peakDay = { day: 'segunda', count: -1 }, lowDay = { day: 'segunda', count: Infinity }
+        DAY_KEYS.forEach((d) => { const op = operatingByDay[d]; occSum += totalByDay[d] > 0 ? op / totalByDay[d] : 0; if (op > peakDay.count) peakDay = { day: d, count: op }; if (op < lowDay.count) lowDay = { day: d, count: op } })
+        return { frota: records.length, mlps: mlps.size, modais: modais.size, contratos: contratos.size, manutencaoPlacas, avgOccupancy: occSum / DAY_KEYS.length, peakDay, lowDay, operatingByDay, totalByDay }
+      }
+      function buildModalSummaries(records) {
+        const map = new Map()
+        for (const r of records) {
+          let s = map.get(r.modal)
+          if (!s) { const operatingByDay = {}; DAY_KEYS.forEach((d) => (operatingByDay[d] = 0)); s = { modal: r.modal, frota: 0, operatingByDay }; map.set(r.modal, s) }
+          s.frota += 1
+          DAY_KEYS.forEach((d) => { const cat = classifyShift(r.days[d]); if (cat !== 'FOLGA' && cat !== 'MANUTENCAO' && cat !== 'OUTRO') s.operatingByDay[d] += 1 })
+        }
+        return Array.from(map.values()).sort((a, b) => b.frota - a.frota)
+      }
+      function plateIsAvailable(r) {
+        return DAY_KEYS.some((d) => { const cat = classifyShift(r.days[d]); return cat !== 'FOLGA' && cat !== 'MANUTENCAO' && cat !== 'OUTRO' })
+      }
+      function buildMlpModalSummaries(records) {
+        const map = new Map()
+        for (const r of records) {
+          let s = map.get(r.mlp)
+          if (!s) { s = { mlp: r.mlp, frota: 0, disponiveis: 0, byModal: { VUC: 0, VAN: 0, UTILITARIO: 0, OUTRO: 0 } }; map.set(r.mlp, s) }
+          s.frota += 1
+          if (!plateIsAvailable(r)) continue
+          const cat = classifyModal(r.modal)
+          s.byModal[cat] += 1
+          if (RESUMO_MODAIS.includes(cat)) s.disponiveis += 1
+        }
+        return Array.from(map.values()).sort((a, b) => b.disponiveis - a.disponiveis || a.mlp.localeCompare(b.mlp, 'pt-BR'))
+      }
+      function formatPct(v) { return Math.round(v * 100) + '%' }
+
+      const GAP_ORDER = ['NOVA_PLACA', 'SAIU_PLACA', 'ENTROU_MANUTENCAO', 'RETORNOU', 'MUDOU_CICLO', 'NOVA_FOLGA', 'SAIU_FOLGA']
+      const GAP_META = {
+        NOVA_PLACA: { short: 'Nova', label: 'Novas placas', icon: 'plus-circle', chip: 'bg-blue-50 text-blue-700 border-blue-200', badge: 'bg-blue-100 text-blue-800' },
+        SAIU_PLACA: { short: 'Saiu', label: 'Placas que saíram', icon: 'minus-circle', chip: 'bg-zinc-100 text-zinc-600 border-zinc-200', badge: 'bg-zinc-200 text-zinc-700' },
+        ENTROU_MANUTENCAO: { short: 'Manutenção', label: 'Entradas em manutenção', icon: 'wrench', chip: 'bg-rose-50 text-rose-700 border-rose-200', badge: 'bg-rose-100 text-rose-800' },
+        RETORNOU: { short: 'Retorno', label: 'Retornos ao ciclo', icon: 'rotate-ccw', chip: 'bg-emerald-50 text-emerald-700 border-emerald-200', badge: 'bg-emerald-100 text-emerald-800' },
+        MUDOU_CICLO: { short: 'Ciclo', label: 'Mudanças de ciclo', icon: 'arrow-left-right', chip: 'bg-sky-50 text-sky-700 border-sky-200', badge: 'bg-sky-100 text-sky-800' },
+        NOVA_FOLGA: { short: 'Folga', label: 'Novas folgas', icon: 'moon', chip: 'bg-amber-50 text-amber-700 border-amber-200', badge: 'bg-amber-100 text-amber-800' },
+        SAIU_FOLGA: { short: 'Voltou a operar', label: 'Saídas de folga', icon: 'sunrise', chip: 'bg-teal-50 text-teal-700 border-teal-200', badge: 'bg-teal-100 text-teal-800' },
+      }
+      const cyc = (c) => SHIFT_META[c].label
+      function diffPlateDays(prev, curr) {
+        const events = []
+        for (const d of DAY_KEYS) {
+          const p = classifyShift(prev.days[d]), c = classifyShift(curr.days[d])
+          if (p === c) continue
+          const dia = DAY_LABELS_FULL[d]
+          if (c === 'MANUTENCAO') events.push({ type: 'ENTROU_MANUTENCAO', label: `Entrou em manutenção na ${dia}` })
+          else if (p === 'MANUTENCAO') events.push({ type: 'RETORNOU', label: c === 'FOLGA' ? `Saiu de manutenção (folga na ${dia})` : `Retornou ao ciclo ${cyc(c)} na ${dia}` })
+          else if (c === 'FOLGA') events.push({ type: 'NOVA_FOLGA', label: `Passou a folgar na ${dia} (era ${cyc(p)})` })
+          else if (p === 'FOLGA') events.push({ type: 'SAIU_FOLGA', label: `Voltou a operar ${cyc(c)} na ${dia} (era folga)` })
+          else events.push({ type: 'MUDOU_CICLO', label: `Mudou de ${cyc(p)} → ${cyc(c)} na ${dia}` })
+        }
+        return events
+      }
+      function emptyGapCounts() { const o = {}; GAP_ORDER.forEach((t) => (o[t] = 0)); return o }
+      function buildGapAnalysis(records, lastWeek, prevWeek) {
+        const byMlp = new Map()
+        for (const r of records) {
+          if (r.semana !== lastWeek && r.semana !== prevWeek) continue
+          let g = byMlp.get(r.mlp)
+          if (!g) { g = { curr: new Map(), prev: new Map() }; byMlp.set(r.mlp, g) }
+          if (r.semana === lastWeek) g.curr.set(r.placa, r); else g.prev.set(r.placa, r)
+        }
+        const result = []
+        for (const [mlp, g] of byMlp) {
+          const plates = [], counts = emptyGapCounts()
+          const allPlacas = new Set([...g.curr.keys(), ...g.prev.keys()])
+          for (const placa of allPlacas) {
+            const cur = g.curr.get(placa), pre = g.prev.get(placa)
+            if (cur && !pre) { counts.NOVA_PLACA += 1; plates.push({ placa, modal: cur.modal, contrato: cur.contrato, status: 'nova', events: [{ type: 'NOVA_PLACA', label: 'Entrou na operação nesta semana' }] }) }
+            else if (!cur && pre) { counts.SAIU_PLACA += 1; plates.push({ placa, modal: pre.modal, contrato: pre.contrato, status: 'saiu', events: [{ type: 'SAIU_PLACA', label: 'Saiu da operação (estava na semana anterior)' }] }) }
+            else if (cur && pre) { const events = diffPlateDays(pre, cur); if (events.length === 0) continue; for (const e of events) counts[e.type] += 1; plates.push({ placa, modal: cur.modal, contrato: cur.contrato, status: 'alterada', events }) }
+          }
+          const rank = (s) => (s === 'nova' ? 0 : s === 'saiu' ? 1 : 2)
+          plates.sort((a, b) => rank(a.status) - rank(b.status) || b.events.length - a.events.length || a.placa.localeCompare(b.placa))
+          const totalMudancas = Object.values(counts).reduce((a, b) => a + b, 0)
+          result.push({ mlp, frotaAtual: g.curr.size, frotaAnterior: g.prev.size, delta: g.curr.size - g.prev.size, plates, counts, totalMudancas })
+        }
+        return result.sort((a, b) => b.totalMudancas - a.totalMudancas || a.mlp.localeCompare(b.mlp, 'pt-BR'))
+      }
+
+      /* ============================================================
+       * Helpers de UI
+       * ============================================================ */
+      const PRIMARY_RGB = '45, 109, 246'
+      function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
+      function tint(ratio) { return `background-color: rgba(${PRIMARY_RGB}, ${Math.min(ratio, 1) * 0.32})` }
+      function logoBadge(mlp, size) {
+        return `<span class="flex ${size} shrink-0 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">${esc(mlp.slice(0, 2).toUpperCase())}</span>`
+      }
+      const CAL_COLS = 'grid-template-columns: minmax(150px,1.6fr) 64px repeat(7, minmax(48px,1fr)) 72px;'
+      const RES_COLS = 'grid-template-columns: minmax(150px,1.8fr) repeat(3, minmax(64px,1fr)) 84px;'
+
+      /* ============================================================
+       * Estado + Render
+       * ============================================================ */
+      const ALL = '__all__'
+      const state = { data: null, mlp: ALL, modal: ALL, contrato: ALL, search: '', tab: 'calendario', lastWeek: '', prevWeek: '' }
+
+      function filteredBase() {
+        const q = state.search.trim().toUpperCase()
+        return state.data.records.filter((r) => {
+          if (state.mlp !== ALL && r.mlp !== state.mlp) return false
+          if (state.modal !== ALL && r.modal !== state.modal) return false
+          if (state.contrato !== ALL && r.contrato !== state.contrato) return false
+          if (q && !r.placa.toUpperCase().includes(q)) return false
+          return true
+        })
+      }
+
+      function renderKpis(kpis) {
+        const cards = [
+          { label: 'Frota (placas/semana)', value: String(kpis.frota), icon: 'truck', accent: 'bg-accent text-accent-foreground' },
+          { label: 'MLPs ativas', value: String(kpis.mlps), icon: 'building-2', accent: 'bg-sky-100 text-sky-700' },
+          { label: 'Modais', value: String(kpis.modais), icon: 'boxes', accent: 'bg-emerald-100 text-emerald-700' },
+          { label: 'Disponibilidade média', value: formatPct(kpis.avgOccupancy), hint: 'média operando/dia', icon: 'gauge', accent: 'bg-amber-100 text-amber-700' },
+          { label: 'Pico de operação', value: String(kpis.peakDay.count), hint: DAY_LABELS_FULL[kpis.peakDay.day], icon: 'trending-up', accent: 'bg-teal-100 text-teal-700' },
+          { label: 'Placas em manutenção', value: String(kpis.manutencaoPlacas), icon: 'wrench', accent: 'bg-rose-100 text-rose-700' },
+        ]
+        document.getElementById('kpis').innerHTML = cards
+          .map(
+            (c) => `<div class="flex flex-row items-center gap-3 rounded-xl border border-border bg-card p-4">
+              <div class="flex size-10 shrink-0 items-center justify-center rounded-lg ${c.accent}"><i data-lucide="${c.icon}" class="size-5"></i></div>
+              <div class="min-w-0">
+                <p class="text-xs font-semibold text-muted-foreground">${c.label}</p>
+                <p class="text-xl font-bold leading-tight tabular-nums">${c.value}</p>
+                ${c.hint ? `<p class="truncate text-xs font-medium text-muted-foreground">${c.hint}</p>` : ''}
+              </div>
+            </div>`,
+          )
+          .join('')
+      }
+
+      const DETAIL_SHIFTS = ['AM1', 'PM1', 'AM_LM', 'CHP', 'FOLGA', 'MANUTENCAO']
+      function renderCalendario(summaries, totals) {
+        const legend = DETAIL_SHIFTS.map((k) => `<div class="flex items-center gap-1.5"><span class="size-2.5 rounded-full ${SHIFT_META[k].dot}"></span><span class="text-xs text-muted-foreground">${SHIFT_META[k].label}</span></div>`).join('')
+        const head = `<div class="sticky top-0 z-10 grid items-center gap-1.5 border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground" style="${CAL_COLS}">
+            <div class="pl-5">MLP</div><div class="text-center">Frota</div>
+            ${DAY_KEYS.map((d) => `<div class="text-center">${DAY_LABELS[d]}</div>`).join('')}
+            <div class="text-center">Disp.</div></div>`
+        const rows = summaries.length === 0
+          ? `<p class="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum registro para os filtros atuais.</p>`
+          : summaries.map((s, idx) => {
+              const cells = DAY_KEYS.map((d) => {
+                const bd = s.days[d], ratio = bd.total > 0 ? bd.operating / bd.total : 0
+                return `<div class="relative flex h-12 flex-col items-center justify-center rounded-md px-1 py-1.5" style="${tint(ratio)}">
+                    <span class="text-sm font-semibold tabular-nums leading-none">${bd.operating}</span>
+                    <span class="mt-0.5 text-[10px] text-muted-foreground tabular-nums">/${bd.total}</span>
+                    <span class="mt-1 h-1 w-8 overflow-hidden rounded-full bg-border"><span class="block h-full rounded-full bg-primary" style="width:${ratio * 100}%"></span></span>
+                  </div>`
+              }).join('')
+              const detail = DETAIL_SHIFTS.map((k) => {
+                const rowTotal = DAY_KEYS.reduce((acc, d) => acc + s.days[d].byShift[k], 0)
+                if (rowTotal === 0) return ''
+                const tds = DAY_KEYS.map((d) => { const v = s.days[d].byShift[k]; return `<td class="px-1 py-1.5 text-center tabular-nums text-muted-foreground">${v > 0 ? `<span class="font-medium text-foreground">${v}</span>` : `<span class="opacity-40">·</span>`}</td>` }).join('')
+                return `<tr class="border-t border-border/60"><td class="py-1.5 pr-2"><span class="flex items-center gap-1.5"><span class="size-2 rounded-full ${SHIFT_META[k].dot}"></span>${SHIFT_META[k].label}</span></td>${tds}<td class="py-1.5 pl-2 text-right font-medium tabular-nums">${rowTotal}</td></tr>`
+              }).join('')
+              return `<div class="border-t border-border first:border-t-0">
+                  <div role="button" tabindex="0" data-cal-toggle="${idx}" class="grid w-full cursor-pointer items-center gap-1.5 px-3 py-2 text-left transition-colors hover:bg-muted/50" style="${CAL_COLS}">
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <i data-lucide="chevron-down" class="size-4 shrink-0 text-muted-foreground transition-transform" data-chev="${idx}"></i>
+                      ${logoBadge(s.mlp, 'size-7')}
+                      <span class="truncate text-sm font-medium" title="${esc(s.mlp)}">${esc(s.mlp)}</span>
+                    </div>
+                    <div class="text-center text-sm tabular-nums text-muted-foreground">${s.frota}</div>
+                    ${cells}
+                    <div class="text-center text-sm font-semibold tabular-nums">${formatPct(s.avgOccupancy)}</div>
+                  </div>
+                  <div data-cal-detail="${idx}" hidden class="overflow-x-auto bg-muted/30 px-3 pb-3 pt-1"><table class="w-full text-xs"><tbody>${detail}</tbody></table></div>
+                </div>`
+            }).join('')
+        const totalsRow = summaries.length > 0
+          ? `<div class="grid items-center gap-1.5 border-t-2 border-border bg-muted/40 px-3 py-2.5 text-xs font-semibold" style="${CAL_COLS}">
+              <div class="pl-5">Total SMG1</div><div class="text-center tabular-nums">${totals.frota}</div>
+              ${DAY_KEYS.map((d) => `<div class="text-center tabular-nums">${totals.operatingByDay[d]}</div>`).join('')}<div></div></div>`
+          : ''
+        return `<div class="overflow-hidden rounded-xl border border-border bg-card">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <div><h2 class="text-sm font-semibold">Calendarização por MLP</h2>
+              <p class="text-xs text-muted-foreground">Veículos operando por dia · Semana ${state.lastWeek} · clique numa MLP para o detalhe por turno</p></div>
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-2">${legend}</div>
+            </div>${head}<div>${rows}</div>${totalsRow}</div>`
+      }
+
+      function renderResumo(summaries) {
+        const totals = { VUC: 0, VAN: 0, UTILITARIO: 0, disponiveis: 0, frota: 0 }
+        for (const s of summaries) { totals.VUC += s.byModal.VUC; totals.VAN += s.byModal.VAN; totals.UTILITARIO += s.byModal.UTILITARIO; totals.disponiveis += s.disponiveis; totals.frota += s.frota }
+        const totalCards = `
+          <div class="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <div class="min-w-0"><div class="text-xl font-bold leading-none tabular-nums text-primary">${totals.disponiveis}</div><div class="mt-1 truncate text-xs font-semibold text-muted-foreground">Disponíveis</div></div>
+          </div>
+          ${RESUMO_MODAIS.map((m) => `<div class="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2.5"><span class="size-3 shrink-0 rounded-full ${MODAL_META[m].dot}"></span><div class="min-w-0"><div class="text-xl font-bold leading-none tabular-nums">${totals[m]}</div><div class="mt-1 truncate text-xs font-semibold text-muted-foreground">${MODAL_META[m].short}</div></div></div>`).join('')}`
+        const head = `<div class="grid items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 text-xs font-semibold text-muted-foreground" style="${RES_COLS}"><div>MLP</div>${RESUMO_MODAIS.map((m) => `<div class="text-center">${MODAL_META[m].short}</div>`).join('')}<div class="text-center">Disponíveis</div></div>`
+        const rows = summaries.length === 0
+          ? `<p class="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum registro para os filtros atuais.</p>`
+          : summaries.map((s) => `<div class="grid items-center gap-2 border-t border-border px-4 py-2.5 first:border-t-0" style="${RES_COLS}">
+              <div class="flex min-w-0 items-center gap-2">${logoBadge(s.mlp, 'size-7')}<span class="truncate text-sm font-semibold" title="${esc(s.mlp)}">${esc(s.mlp)}</span></div>
+              ${RESUMO_MODAIS.map((m) => { const v = s.byModal[m]; return `<div class="text-center text-sm font-bold tabular-nums">${v > 0 ? v : '<span class="font-normal opacity-40">·</span>'}</div>` }).join('')}
+              <div class="text-center"><span class="inline-flex min-w-8 items-center justify-center rounded-md bg-primary/10 px-2 py-0.5 text-sm font-bold tabular-nums text-primary">${s.disponiveis}</span></div></div>`).join('')
+        const totalsRow = summaries.length > 0
+          ? `<div class="grid items-center gap-2 border-t-2 border-border bg-muted/40 px-4 py-2.5 text-sm font-bold" style="${RES_COLS}"><div>Total SMG1</div>${RESUMO_MODAIS.map((m) => `<div class="text-center tabular-nums">${totals[m]}</div>`).join('')}<div class="text-center tabular-nums text-primary">${totals.disponiveis}</div></div>`
+          : ''
+        const legend = RESUMO_MODAIS.map((m) => `<span class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><span class="size-2.5 rounded-full ${MODAL_META[m].dot}"></span>${MODAL_META[m].label}</span>`).join('')
+        return `<div class="space-y-4">
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">${totalCards}</div>
+            <div class="overflow-hidden rounded-xl border border-border bg-card">
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                <div><h2 class="text-sm font-bold">Resumo por MLP</h2><p class="text-xs font-medium text-muted-foreground">Placas disponíveis por modal ajustado · Semana ${state.lastWeek}</p></div>
+                <div class="flex flex-wrap items-center gap-3">${legend}</div>
+              </div>${head}<div>${rows}</div>${totalsRow}</div></div>`
+      }
+
+      function shiftPill(raw) {
+        const cat = classifyShift(raw), m = SHIFT_META[cat]
+        const label = raw && raw.trim() ? raw.trim() : '—'
+        return `<span class="inline-flex min-w-14 items-center justify-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-medium ${m.chip}">${esc(label)}</span>`
+      }
+      function renderTabela(records) {
+        const g = state.tableGroup || 'placa'
+        const placaRows = [...records].sort((a, b) => a.mlp.localeCompare(b.mlp, 'pt-BR') || a.placa.localeCompare(b.placa))
+        const modalRows = buildModalSummaries(records)
+        const toggle = ['placa', 'modal'].map((k) => `<button data-table-group="${k}" class="rounded-md px-3 py-1.5 capitalize transition-colors ${g === k ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}">Por ${k}</button>`).join('')
+        let table
+        if (g === 'placa') {
+          const body = placaRows.length === 0
+            ? `<tr><td colspan="11" class="px-4 py-8 text-center text-sm text-muted-foreground">Nenhuma placa para os filtros atuais.</td></tr>`
+            : placaRows.map((r) => `<tr class="border-b border-border/60 hover:bg-muted/40">
+                <td class="px-3 py-2 font-mono text-xs font-medium">${esc(r.placa)}</td>
+                <td class="max-w-[220px] px-3 py-2"><span class="block truncate" title="${esc(r.modal)}">${esc(r.modal)}</span></td>
+                <td class="max-w-[160px] px-3 py-2"><span class="block truncate text-muted-foreground" title="${esc(r.mlp)}">${esc(r.mlp)}</span></td>
+                <td class="px-3 py-2 text-muted-foreground">${esc(r.contrato)}</td>
+                ${DAY_KEYS.map((d) => `<td class="px-1.5 py-1.5 text-center">${shiftPill(r.days[d])}</td>`).join('')}</tr>`).join('')
+          table = `<table class="w-full min-w-[900px] border-collapse text-sm"><thead><tr class="border-b border-border bg-muted/40 text-left text-xs font-medium text-muted-foreground">
+              <th class="px-3 py-2">Placa</th><th class="px-3 py-2">Modal</th><th class="px-3 py-2">MLP</th><th class="px-3 py-2">Contrato</th>
+              ${DAY_KEYS.map((d) => `<th class="px-2 py-2 text-center">${DAY_LABELS[d]}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
+        } else {
+          const body = modalRows.length === 0
+            ? `<tr><td colspan="9" class="px-4 py-8 text-center text-sm text-muted-foreground">Nenhum modal para os filtros atuais.</td></tr>`
+            : modalRows.map((m) => `<tr class="border-b border-border/60 hover:bg-muted/40">
+                <td class="max-w-[280px] px-3 py-2 font-medium"><span class="block truncate" title="${esc(m.modal)}">${esc(m.modal)}</span></td>
+                <td class="px-3 py-2 text-center tabular-nums text-muted-foreground">${m.frota}</td>
+                ${DAY_KEYS.map((d) => { const op = m.operatingByDay[d], ratio = m.frota > 0 ? op / m.frota : 0; return `<td class="px-1.5 py-1.5 text-center"><span class="inline-flex min-w-9 items-center justify-center rounded-md px-1.5 py-1 text-xs font-medium tabular-nums" style="${tint(ratio)}">${op}</span></td>` }).join('')}</tr>`).join('')
+          table = `<table class="w-full min-w-[900px] border-collapse text-sm"><thead><tr class="border-b border-border bg-muted/40 text-left text-xs font-medium text-muted-foreground">
+              <th class="px-3 py-2">Modal</th><th class="px-3 py-2 text-center">Frota</th>
+              ${DAY_KEYS.map((d) => `<th class="px-2 py-2 text-center">${DAY_LABELS[d]}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table>`
+        }
+        const sub = g === 'placa' ? `${placaRows.length} placas · Semana ${state.lastWeek}` : `${modalRows.length} modais · Semana ${state.lastWeek}`
+        return `<div class="overflow-hidden rounded-xl border border-border bg-card">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <div><h2 class="text-sm font-semibold">Tabela geral da frota</h2><p class="text-xs text-muted-foreground">${sub}</p></div>
+              <div class="inline-flex rounded-lg border border-border bg-muted/40 p-0.5 text-xs font-medium">${toggle}</div>
+            </div><div class="overflow-x-auto">${table}</div></div>`
+      }
+
+      function renderGap(gaps) {
+        if (!state.prevWeek) return `<div class="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">Não há semana anterior disponível na base para comparação.</div>`
+        const withChanges = gaps.filter((g) => g.totalMudancas > 0)
+        const totals = {}; GAP_ORDER.forEach((t) => (totals[t] = 0)); for (const g of gaps) for (const t of GAP_ORDER) totals[t] += g.counts[t]
+        const summary = `<div class="rounded-lg border border-border bg-card p-4">
+            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 class="text-sm font-semibold">Comparativo Semana ${state.prevWeek} <span class="text-muted-foreground">→</span> Semana ${state.lastWeek}</h2>
+              <span class="text-xs text-muted-foreground">${withChanges.length} MLPs com alterações</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+              ${GAP_ORDER.map((t) => { const m = GAP_META[t]; return `<div class="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-2"><span class="flex size-7 shrink-0 items-center justify-center rounded-md ${m.badge}"><i data-lucide="${m.icon}" class="size-4"></i></span><div class="min-w-0"><div class="text-base font-semibold leading-none tabular-nums">${totals[t]}</div><div class="truncate text-[11px] text-muted-foreground">${m.short}</div></div></div>` }).join('')}
+            </div></div>`
+        if (withChanges.length === 0) return `<div class="space-y-4">${summary}<div class="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">Nenhuma mudança de calendarização entre a semana ${state.prevWeek} e a semana ${state.lastWeek} para os filtros atuais.</div></div>`
+        const cards = withChanges.map((g, idx) => {
+          const active = GAP_ORDER.filter((t) => g.counts[t] > 0)
+          const deltaIcon = g.delta > 0 ? 'arrow-up' : g.delta < 0 ? 'arrow-down' : 'minus'
+          const deltaColor = g.delta > 0 ? 'text-emerald-600' : g.delta < 0 ? 'text-rose-600' : 'text-muted-foreground'
+          const counters = active.map((t) => { const m = GAP_META[t]; return `<span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.badge}" title="${m.label}"><i data-lucide="${m.icon}" class="size-3"></i>${g.counts[t]}</span>` }).join('')
+          const plates = g.plates.map((p) => {
+            const tag = p.status === 'nova' ? { label: 'NOVA', cls: 'bg-blue-100 text-blue-800' } : p.status === 'saiu' ? { label: 'SAIU', cls: 'bg-zinc-200 text-zinc-700' } : { label: 'ALTERADA', cls: 'bg-sky-100 text-sky-800' }
+            const evs = p.events.map((e) => { const m = GAP_META[e.type]; return `<span class="inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${m.chip}"><i data-lucide="${m.icon}" class="size-3.5 shrink-0"></i>${esc(e.label)}</span>` }).join('')
+            return `<div class="flex flex-col gap-2 px-4 py-2.5 sm:flex-row sm:items-start">
+                <div class="flex min-w-[200px] shrink-0 items-center gap-2"><span class="rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wide ${tag.cls}">${tag.label}</span><span class="font-mono text-sm font-semibold">${esc(p.placa)}</span><span class="truncate text-[11px] text-muted-foreground" title="${esc(p.modal)}">${esc(p.modal)}</span></div>
+                <div class="flex flex-wrap gap-1.5">${evs}</div></div>`
+          }).join('')
+          return `<div class="overflow-hidden rounded-lg border border-border bg-card">
+              <button type="button" data-gap-toggle="${idx}" class="flex w-full flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-left transition-colors hover:bg-muted/50">
+                <div class="flex min-w-[180px] items-center gap-2">${logoBadge(g.mlp, 'size-8')}<div><div class="text-sm font-semibold leading-tight">${esc(g.mlp)}</div><div class="text-[11px] text-muted-foreground">${g.plates.length} placa${g.plates.length === 1 ? '' : 's'} com mudança</div></div></div>
+                <div class="flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1"><span class="text-[11px] text-muted-foreground">Frota</span><span class="text-sm font-semibold tabular-nums">${g.frotaAtual}</span><span class="inline-flex items-center text-xs font-medium ${deltaColor}"><i data-lucide="${deltaIcon}" class="size-3.5"></i>${g.delta === 0 ? '0' : Math.abs(g.delta)}</span><span class="text-[11px] text-muted-foreground">(era ${g.frotaAnterior})</span></div>
+                <div class="flex flex-wrap items-center gap-1.5">${counters}</div>
+              </button>
+              <div data-gap-detail="${idx}" hidden class="divide-y divide-border border-t border-border">${plates}</div></div>`
+        }).join('')
+        return `<div class="space-y-4">${summary}<div class="space-y-3">${cards}</div></div>`
+      }
+
+      function renderActiveTab() {
+        const base = filteredBase()
+        const filtered = base.filter((r) => !state.lastWeek || r.semana === state.lastWeek)
+        if (state.tab === 'calendario') {
+          const summaries = buildMlpSummaries(filtered)
+          const kpis = buildKpis(filtered)
+          document.getElementById('panel-calendario').innerHTML = renderCalendario(summaries, { operatingByDay: kpis.operatingByDay, totalByDay: kpis.totalByDay, frota: kpis.frota })
+        } else if (state.tab === 'resumo') {
+          document.getElementById('panel-resumo').innerHTML = renderResumo(buildMlpModalSummaries(filtered))
+        } else if (state.tab === 'tabela') {
+          document.getElementById('panel-tabela').innerHTML = renderTabela(filtered)
+        } else if (state.tab === 'gap') {
+          document.getElementById('panel-gap').innerHTML = renderGap(buildGapAnalysis(base, state.lastWeek, state.prevWeek))
+        }
+        lucide.createIcons()
+      }
+
+      function renderAll() {
+        const base = filteredBase()
+        const filtered = base.filter((r) => !state.lastWeek || r.semana === state.lastWeek)
+        renderKpis(buildKpis(filtered))
+        const totalWeek = state.data.records.filter((r) => !state.lastWeek || r.semana === state.lastWeek).length
+        document.getElementById('f-count').textContent = `${filtered.length} de ${totalWeek} placas na semana ${state.lastWeek}`
+        renderActiveTab()
+      }
+
+      function fillSelect(id, label, options) {
+        const el = document.getElementById(id)
+        el.innerHTML = `<option value="${ALL}">${label}: todas</option>` + options.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('')
+      }
+
+      function setupTabs() {
+        document.querySelectorAll('.tab-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            state.tab = btn.dataset.tab
+            document.querySelectorAll('.tab-btn').forEach((b) => {
+              const on = b.dataset.tab === state.tab
+              b.classList.toggle('bg-card', on); b.classList.toggle('text-foreground', on); b.classList.toggle('shadow-sm', on)
+              b.classList.toggle('text-muted-foreground', !on)
+            })
+            document.querySelectorAll('.tab-panel').forEach((p) => (p.hidden = p.id !== `panel-${state.tab}`))
+            renderActiveTab()
+          })
+        })
+        // estado inicial dos botões
+        document.querySelectorAll('.tab-btn').forEach((b) => {
+          const on = b.dataset.tab === state.tab
+          b.classList.toggle('bg-card', on); b.classList.toggle('text-foreground', on); b.classList.toggle('shadow-sm', on)
+          b.classList.toggle('text-muted-foreground', !on)
+        })
+      }
+
+      // Delegação de cliques para toggles internos (calendário / gap / tabela)
+      document.addEventListener('click', (ev) => {
+        const cal = ev.target.closest('[data-cal-toggle]')
+        if (cal) { const i = cal.dataset.calToggle; const d = document.querySelector(`[data-cal-detail="${i}"]`); const chev = document.querySelector(`[data-chev="${i}"]`); if (d) d.hidden = !d.hidden; if (chev) chev.classList.toggle('rotate-180'); return }
+        const gap = ev.target.closest('[data-gap-toggle]')
+        if (gap) { const i = gap.dataset.gapToggle; const d = document.querySelector(`[data-gap-detail="${i}"]`); if (d) d.hidden = !d.hidden; return }
+        const tg = ev.target.closest('[data-table-group]')
+        if (tg) { state.tableGroup = tg.dataset.tableGroup; renderActiveTab(); return }
+      })
+
+      async function init() {
+        const data = await getFleetData()
+        state.data = data
+        const statusEl = document.getElementById('status')
+        if (data.error) { statusEl.textContent = data.error; return }
+        if (data.records.length === 0) { statusEl.textContent = 'Nenhum registro encontrado para a facility SMG1.'; return }
+        statusEl.hidden = true
+
+        state.lastWeek = data.semanas[data.semanas.length - 1] || ''
+        state.prevWeek = data.semanas[data.semanas.length - 2] || ''
+        document.getElementById('week-current').textContent = `Semana ${state.lastWeek || '—'}`
+        document.getElementById('week-prev').textContent = state.prevWeek ? `vs. Semana ${state.prevWeek} no GAP` : 'semana corrente'
+
+        fillSelect('f-mlp', 'MLP', data.mlps)
+        fillSelect('f-modal', 'Modal', data.modais)
+        fillSelect('f-contrato', 'Contrato', data.contratos)
+        document.getElementById('f-mlp').addEventListener('change', (e) => { state.mlp = e.target.value; renderAll() })
+        document.getElementById('f-modal').addEventListener('change', (e) => { state.modal = e.target.value; renderAll() })
+        document.getElementById('f-contrato').addEventListener('change', (e) => { state.contrato = e.target.value; renderAll() })
+        document.getElementById('f-search').addEventListener('input', (e) => { state.search = e.target.value; renderAll() })
+
+        document.getElementById('kpis').hidden = false
+        document.getElementById('filters').hidden = false
+        document.getElementById('tabs-wrap').hidden = false
+        setupTabs()
+        renderAll()
+      }
+
+      lucide.createIcons()
+      init()
+    </script>
+  </body>
+</html>
